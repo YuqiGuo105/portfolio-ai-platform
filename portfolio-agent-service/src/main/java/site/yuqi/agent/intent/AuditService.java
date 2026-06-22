@@ -28,7 +28,9 @@ public class AuditService {
 
     private static final Set<String> REDACT_KEYS = Set.of(
             "apiKey", "api_key", "authorization", "token", "secret", "password",
-            "serviceRoleKey", "service_role_key", "openaiApiKey", "openai_api_key");
+            "serviceRoleKey", "service_role_key",
+            "openaiApiKey", "openai_api_key",
+            "geminiApiKey", "gemini_api_key");
 
     private final ObjectMapper objectMapper;
 

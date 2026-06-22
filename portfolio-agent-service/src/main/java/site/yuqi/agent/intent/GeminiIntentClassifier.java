@@ -11,6 +11,8 @@ import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
 
+import java.net.URLEncoder;
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
 import java.util.ArrayList;
 import java.util.HashMap;
@@ -19,46 +21,57 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Cheap OpenAI-backed intent classifier. Uses Chat Completions with
- * {@code response_format: { type: "json_object" }} to force strict JSON
- * output. The model id is read from {@code OPENAI_INTENT_MODEL} (env);
- * no hardcoded model names appear in business logic.
+ * Cheap Gemini-backed intent classifier — drop-in alternative to
+ * {@link OpenAiIntentClassifier}. Activated when
+ * {@code agent.intent.provider=gemini}.
  *
- * <h3>Safety</h3>
- * <ol>
- *   <li>The LLM is given an allowlist of tool names from
- *       {@link ToolRegistry}. Output is re-checked.</li>
- *   <li>If JSON parsing fails or {@code targetTool} is not in the registry,
- *       this method throws and the orchestrator falls back to
- *       clarification.</li>
- *   <li>The classifier NEVER executes a tool or touches downstream state.</li>
- * </ol>
+ * <p>Uses {@code generateContent} with {@code responseMimeType:
+ * application/json} for strict-shape output, and
+ * {@code thinkingConfig.thinkingBudget=0} to disable Gemini-2.5 "thinking"
+ * tokens (we don't want the model wasting tokens on hidden reasoning for a
+ * structured classification task).
+ *
+ * <p>Same prompt + same allowlist enforcement as {@link OpenAiIntentClassifier},
+ * so the orchestrator and tests stay provider-agnostic.
  */
 @Slf4j
 @Component
-@ConditionalOnProperty(name = "agent.intent.provider", havingValue = "openai", matchIfMissing = true)
-public class OpenAiIntentClassifier implements IntentClassifier {
+@ConditionalOnProperty(name = "agent.intent.provider", havingValue = "gemini")
+public class GeminiIntentClassifier implements IntentClassifier {
 
     private final ToolRegistry toolRegistry;
     private final WebClient.Builder webClientBuilder;
     private final ObjectMapper objectMapper;
 
-    @Value("${agent.model.openai.api-key:}")
+    @Value("${agent.model.gemini.api-key:${GEMINI_API_KEY:}}")
     private String apiKey;
 
-    @Value("${agent.model.openai.base-url:https://api.openai.com/v1}")
+    @Value("${agent.model.gemini.base-url:${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}}")
     private String baseUrl;
 
-    @Value("${agent.intent.openai.model:${OPENAI_INTENT_MODEL:gpt-4o-mini}}")
+    @Value("${agent.intent.gemini.model:${GEMINI_INTENT_MODEL:gemini-2.5-flash}}")
     private String defaultModel;
 
-    @Value("${agent.intent.openai.escalation-model:${OPENAI_INTENT_ESCALATION_MODEL:gpt-4o}}")
+    @Value("${agent.intent.gemini.escalation-model:${GEMINI_INTENT_ESCALATION_MODEL:}}")
     private String escalationModel;
 
-    @Value("${agent.intent.openai.timeout-ms:15000}")
+    @Value("${agent.intent.gemini.timeout-ms:${GEMINI_INTENT_TIMEOUT_MS:15000}}")
     private int timeoutMs;
 
-    public OpenAiIntentClassifier(ToolRegistry toolRegistry,
+    @Value("${agent.intent.gemini.max-output-tokens:1024}")
+    private int maxOutputTokens;
+
+    /**
+     * Gemini-2.5 introduced an internal "thinking" pass that silently
+     * consumes output tokens. For a small JSON classification task we don't
+     * benefit from it, so we disable it by default (=0). Set to a positive
+     * value to enable a bounded thinking budget, or {@code -1} to let the
+     * model decide.
+     */
+    @Value("${agent.intent.gemini.thinking-budget:0}")
+    private int thinkingBudget;
+
+    public GeminiIntentClassifier(ToolRegistry toolRegistry,
                                   WebClient.Builder webClientBuilder,
                                   ObjectMapper objectMapper) {
         this.toolRegistry = toolRegistry;
@@ -85,27 +98,41 @@ public class OpenAiIntentClassifier implements IntentClassifier {
     private IntentResult classifyWithModel(IntentRequest request, String model) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IntentClassificationException(
-                    "OPENAI_API_KEY is not configured — cannot classify intent.");
+                    "GEMINI_API_KEY is not configured — cannot classify intent.");
         }
 
         String systemPrompt = buildSystemPrompt();
         String userPrompt = buildUserPrompt(request);
 
+        // Request body — Gemini v1beta generateContent shape
         ObjectNode body = objectMapper.createObjectNode();
-        body.put("model", model);
-        body.put("temperature", 0);
-        body.set("response_format", objectMapper.createObjectNode().put("type", "json_object"));
-        ArrayNode messages = body.putArray("messages");
-        messages.addObject().put("role", "system").put("content", systemPrompt);
-        messages.addObject().put("role", "user").put("content", userPrompt);
+        ObjectNode sysInstruction = body.putObject("systemInstruction");
+        sysInstruction.putArray("parts").addObject().put("text", systemPrompt);
+
+        ArrayNode contents = body.putArray("contents");
+        ObjectNode userTurn = contents.addObject();
+        userTurn.put("role", "user");
+        userTurn.putArray("parts").addObject().put("text", userPrompt);
+
+        ObjectNode generationConfig = body.putObject("generationConfig");
+        generationConfig.put("temperature", 0);
+        generationConfig.put("maxOutputTokens", maxOutputTokens);
+        generationConfig.put("responseMimeType", "application/json");
+        // Disable hidden thinking tokens for Gemini-2.5+ models
+        generationConfig.putObject("thinkingConfig").put("thinkingBudget", thinkingBudget);
+
+        // safetySettings: leave at provider defaults (Gemini still allows
+        // harmless tool-classification text; we don't want to be more
+        // restrictive than OpenAI is)
 
         WebClient client = webClientBuilder.baseUrl(baseUrl).build();
+        String path = "/models/" + URLEncoder.encode(model, StandardCharsets.UTF_8)
+                + ":generateContent?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
 
         String content;
         try {
             JsonNode resp = client.post()
-                    .uri("/chat/completions")
-                    .header("Authorization", "Bearer " + apiKey)
+                    .uri(path)
                     .header("Content-Type", "application/json")
                     .bodyValue(body)
                     .retrieve()
@@ -114,20 +141,26 @@ public class OpenAiIntentClassifier implements IntentClassifier {
                     .block();
 
             if (resp == null) {
-                throw new IntentClassificationException("Empty response from OpenAI.");
+                throw new IntentClassificationException("Empty response from Gemini.");
             }
-            JsonNode choices = resp.get("choices");
-            if (choices == null || !choices.isArray() || choices.isEmpty()) {
-                throw new IntentClassificationException("OpenAI response missing choices: " + resp);
+            JsonNode candidates = resp.get("candidates");
+            if (candidates == null || !candidates.isArray() || candidates.isEmpty()) {
+                throw new IntentClassificationException("Gemini response missing candidates: " + resp);
             }
-            content = choices.get(0).path("message").path("content").asText(null);
+            JsonNode parts = candidates.get(0).path("content").path("parts");
+            if (parts == null || !parts.isArray() || parts.isEmpty()) {
+                String finishReason = candidates.get(0).path("finishReason").asText("");
+                throw new IntentClassificationException(
+                        "Gemini response missing content.parts (finishReason=" + finishReason + ")");
+            }
+            content = parts.get(0).path("text").asText(null);
             if (content == null || content.isBlank()) {
-                throw new IntentClassificationException("OpenAI response missing message content.");
+                throw new IntentClassificationException("Gemini response missing text content.");
             }
         } catch (IntentClassificationException e) {
             throw e;
         } catch (Exception e) {
-            throw new IntentClassificationException("OpenAI call failed: " + e.getMessage(), e);
+            throw new IntentClassificationException("Gemini call failed: " + e.getMessage(), e);
         }
 
         return parseAndAllowlist(content);
@@ -148,7 +181,6 @@ public class OpenAiIntentClassifier implements IntentClassifier {
         IntentType intent = parseIntent(node.path("intent").asText(""));
         String targetTool = nullIfBlank(node.path("targetTool").asText(null));
 
-        // Allowlist enforcement: if a tool name is provided it MUST exist.
         if (targetTool != null && !toolRegistry.contains(targetTool)) {
             throw new IntentClassificationException(
                     "LLM returned non-allowlisted tool: " + targetTool);
