@@ -1,0 +1,340 @@
+# Sprint 1 MCP tool catalog.
+#
+# IMPORTANT: tool names here MUST match site.yuqi.agent.intent.ToolRegistry
+# in portfolio-agent-service exactly. The agent calls
+#   POST /api/tools/{name}/invoke
+# and {name} comes from its own allowlist.
+#
+# Each entry declares:
+#   name              – stable string; agent.intent.ToolDefinition.name
+#   mode              – READ | WRITE   (gateway uses this for audit + idempotency)
+#   description       – short human-readable summary
+#   requiredRole      – VIEWER | EDITOR | PUBLISHER | ADMIN
+#   riskLevel         – LOW | MEDIUM | HIGH | CRITICAL  (gateway taxonomy)
+#   dryRunSupported   – boolean
+#   confirmRequired   – boolean (writes must pass _confirmed=true)
+#   confirmationMethod– optional, e.g. "email_otp"
+#   parameters        – list of { name, type, required, description }
+#   endpoint          – { target, method, path }
+#                       target ∈ portfolio | admin | notification
+#
+# Hard invariants enforced by the gateway:
+#   * NEVER writes Supabase tables directly.
+#   * NEVER constructs Kafka payloads — admin-service owns event emission for
+#     publish / reindex / retry tools.
+#   * Every WRITE-mode tool is audited via AuditService and respects the
+#     riskLevel / confirmRequired flags.
+
+tools:
+
+  # ── Admin: read ─────────────────────────────────────────────────────────
+  - name: admin.search_content
+    mode: READ
+    description: Search portfolio content (blogs, projects, life blogs, experience).
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: keyword,    type: string,  required: true,  description: "Free-text keyword." }
+      - { name: sourceType, type: string,  required: false, description: "BLOG | PROJECT | LIFE | EXPERIENCE." }
+      - { name: category,   type: string,  required: false, description: "Category slug filter." }
+      - { name: limit,      type: integer, required: false, description: "Default 10, max 50." }
+    endpoint:
+      target: admin
+      method: GET
+      path: /api/admin/content
+
+  - name: admin.get_content
+    mode: READ
+    description: Fetch a single content item by sourceType + sourceId.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: sourceType, type: string,  required: true,  description: "BLOG | PROJECT | LIFE | EXPERIENCE." }
+      - { name: sourceId,   type: integer, required: true,  description: "Content id." }
+    endpoint:
+      target: admin
+      method: GET
+      path: /api/admin/content/{sourceType}/{sourceId}
+
+  - name: admin.list_indexing_jobs
+    mode: READ
+    description: List indexing jobs (RAG / OpenSearch) with optional status filter.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: status, type: string,  required: false, description: "PENDING | RUNNING | FAILED | SUCCEEDED." }
+      - { name: kind,   type: string,  required: false, description: "RAG | SEARCH." }
+      - { name: limit,  type: integer, required: false }
+    endpoint:
+      target: admin
+      method: GET
+      path: /api/admin/indexing-jobs
+
+  - name: admin.list_outbox_events
+    mode: READ
+    description: List recent outbox events awaiting or after Kafka emission.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: status, type: string,  required: false, description: "PENDING | SENT | FAILED." }
+      - { name: limit,  type: integer, required: false }
+    endpoint:
+      target: admin
+      method: GET
+      path: /api/admin/outbox
+
+  # ── Admin: write ────────────────────────────────────────────────────────
+  - name: admin.create_content_draft
+    mode: WRITE
+    description: Create a new content draft (no publish, no events emitted).
+    requiredRole: EDITOR
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: sourceType, type: string, required: true,  description: "BLOG | PROJECT | LIFE | EXPERIENCE." }
+      - { name: title,      type: string, required: true }
+      - { name: summary,    type: string, required: false }
+      - { name: body,       type: string, required: false }
+      - { name: category,   type: string, required: false }
+      - { name: tags,       type: array,  required: false }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/content/{sourceType}/drafts
+
+  - name: admin.update_content
+    mode: WRITE
+    description: Update fields on an existing draft or published content item.
+    requiredRole: EDITOR
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: sourceType, type: string,  required: true }
+      - { name: sourceId,   type: integer, required: true }
+      - { name: title,      type: string,  required: false }
+      - { name: summary,    type: string,  required: false }
+      - { name: body,       type: string,  required: false }
+      - { name: category,   type: string,  required: false }
+      - { name: tags,       type: array,   required: false }
+      - { name: changeNote, type: string,  required: false }
+    endpoint:
+      target: admin
+      method: PATCH
+      path: /api/admin/content/{sourceType}/{sourceId}
+
+  - name: admin.publish_content
+    mode: WRITE
+    description: Publish a content item. admin-service emits content.published.
+    requiredRole: PUBLISHER
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    note: |
+      The gateway forwards sourceType + sourceId only. portfolio-admin-service
+      assembles the Kafka payload (content.published). The gateway MUST NOT
+      construct Kafka envelopes itself.
+    parameters:
+      - { name: sourceType, type: string,  required: true }
+      - { name: sourceId,   type: integer, required: true }
+      - { name: changeNote, type: string,  required: false }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/content/{sourceType}/{sourceId}/publish
+
+  - name: admin.reindex_rag
+    mode: WRITE
+    description: Reindex a content item into the RAG vector store.
+    requiredRole: PUBLISHER
+    riskLevel: HIGH
+    dryRunSupported: true
+    confirmRequired: true
+    parameters:
+      - { name: sourceType, type: string,  required: true }
+      - { name: sourceId,   type: integer, required: true }
+      - { name: dryRun,     type: boolean, required: false }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/content/{sourceType}/{sourceId}/reindex-rag
+
+  - name: admin.reindex_search
+    mode: WRITE
+    description: Reindex a content item into OpenSearch.
+    requiredRole: PUBLISHER
+    riskLevel: HIGH
+    dryRunSupported: true
+    confirmRequired: true
+    parameters:
+      - { name: sourceType, type: string,  required: true }
+      - { name: sourceId,   type: integer, required: true }
+      - { name: dryRun,     type: boolean, required: false }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/content/{sourceType}/{sourceId}/reindex-search
+
+  - name: admin.retry_indexing_job
+    mode: WRITE
+    description: Retry a failed indexing job by jobId.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: jobId, type: string, required: true, description: "Indexing job id." }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/indexing-jobs/{jobId}/retry
+
+  # ── Notification: read ──────────────────────────────────────────────────
+  - name: notification.get_delivery_stats
+    mode: READ
+    description: Aggregated notification delivery stats.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: window,  type: string, required: false, description: "1h | 24h | 7d." }
+      - { name: channel, type: string, required: false, description: "EMAIL | WEB." }
+    endpoint:
+      target: notification
+      method: GET
+      path: /api/admin/notifications/stats
+
+  - name: notification.list_subscribers
+    mode: READ
+    description: List newsletter subscribers (admin-only).
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: status,   type: string,  required: false }
+      - { name: category, type: string,  required: false }
+      - { name: limit,    type: integer, required: false }
+      - { name: cursor,   type: string,  required: false }
+    endpoint:
+      target: notification
+      method: GET
+      path: /api/admin/subscribers
+
+  - name: notification.get_subscriber
+    mode: READ
+    description: Get a subscriber by id (admin-only).
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: subscriberId, type: string, required: true }
+    endpoint:
+      target: notification
+      method: GET
+      path: /api/admin/subscribers/{subscriberId}
+
+  - name: notification.list_notifications
+    mode: READ
+    description: List sent / scheduled notifications.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: status,  type: string,  required: false }
+      - { name: channel, type: string,  required: false }
+      - { name: limit,   type: integer, required: false }
+    endpoint:
+      target: notification
+      method: GET
+      path: /api/admin/notifications
+
+  - name: notification.list_failed_deliveries
+    mode: READ
+    description: List failed or pending notification deliveries.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: channel, type: string,  required: false, description: "EMAIL | WEB." }
+      - { name: status,  type: string,  required: false, description: "FAILED | PENDING." }
+      - { name: limit,   type: integer, required: false }
+    endpoint:
+      target: notification
+      method: GET
+      path: /api/admin/notifications/deliveries
+
+  # ── Notification: write ─────────────────────────────────────────────────
+  - name: notification.retry_failed_delivery
+    mode: WRITE
+    description: Retry a failed notification delivery by recipientId.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: recipientId, type: string, required: true }
+    endpoint:
+      target: notification
+      method: POST
+      path: /api/admin/notifications/deliveries/{recipientId}/retry
+
+  - name: notification.send_test_notification
+    mode: WRITE
+    description: Send a test notification to a recipient.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    dryRunSupported: true
+    confirmRequired: true
+    parameters:
+      - { name: recipient,  type: string, required: true,  description: "Email or subscriberId." }
+      - { name: channel,    type: string, required: false, description: "EMAIL | WEB." }
+      - { name: templateId, type: string, required: false }
+    endpoint:
+      target: notification
+      method: POST
+      path: /api/admin/notifications/test
+
+  - name: notification.update_subscription
+    mode: WRITE
+    description: Update subscriber preferences.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: subscriberId, type: string, required: true }
+      - { name: categories,   type: array,  required: false }
+      - { name: frequency,    type: string, required: false }
+    endpoint:
+      target: notification
+      method: PATCH
+      path: /api/admin/subscribers/{subscriberId}/preferences
+
+  - name: notification.unsubscribe_subscriber
+    mode: WRITE
+    description: Hard-unsubscribe a subscriber. Requires email-OTP confirmation downstream.
+    requiredRole: ADMIN
+    riskLevel: CRITICAL
+    dryRunSupported: false
+    confirmRequired: true
+    confirmationMethod: email_otp
+    parameters:
+      - { name: subscriberId, type: string, required: true }
+    endpoint:
+      target: notification
+      method: DELETE
+      path: /api/admin/subscribers/{subscriberId}

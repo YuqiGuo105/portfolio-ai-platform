@@ -1,0 +1,116 @@
+name: Deploy portfolio-mcp-gateway
+
+on:
+  workflow_dispatch:
+    inputs:
+      image_tag:
+        description: "Image tag override (optional). Defaults to sha-<short-sha>."
+        required: false
+        type: string
+  push:
+    tags:
+      - "gateway-v*"
+
+permissions:
+  contents: read
+  id-token: write
+
+env:
+  PROJECT_ID:        ${{ vars.GCP_PROJECT_ID }}
+  REGION:            ${{ vars.GCP_REGION }}
+  ARTIFACT_REPO:     ${{ vars.ARTIFACT_REPO }}
+  IMAGE_NAME:        portfolio-mcp-gateway
+  SERVICE_NAME:      portfolio-mcp-gateway
+  WIF_PROVIDER:      ${{ vars.WIF_PROVIDER }}
+  DEPLOYER_SA_EMAIL: ${{ vars.DEPLOYER_SA_EMAIL }}
+  RUNTIME_SA_EMAIL:  ${{ vars.GATEWAY_RUNTIME_SA_EMAIL }}
+  ALLOWED_ORIGINS:   ${{ vars.ALLOWED_ORIGINS }}
+
+jobs:
+  deploy:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      - name: Build gateway JAR
+        run: |
+          mvn -B -DskipTests=false -pl portfolio-mcp-gateway -am package
+
+      - name: Compute image tag
+        id: tag
+        run: |
+          if [ -n "${{ github.event.inputs.image_tag }}" ]; then
+            TAG="${{ github.event.inputs.image_tag }}"
+          elif [[ "${GITHUB_REF}" == refs/tags/gateway-v* ]]; then
+            TAG="${GITHUB_REF#refs/tags/}"
+          else
+            TAG="sha-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+          fi
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "Resolved image tag: ${TAG}"
+
+      - name: Authenticate to Google Cloud (Workload Identity Federation)
+        uses: google-github-actions/auth@v2
+        with:
+          workload_identity_provider: ${{ env.WIF_PROVIDER }}
+          service_account: ${{ env.DEPLOYER_SA_EMAIL }}
+
+      - name: Set up gcloud
+        uses: google-github-actions/setup-gcloud@v2
+
+      - name: Configure Docker for Artifact Registry
+        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+
+      - name: Build & push image
+        run: |
+          IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${IMAGE_NAME}:${{ steps.tag.outputs.tag }}"
+          docker build \
+            -f portfolio-mcp-gateway/Dockerfile \
+            -t "${IMAGE}" .
+          docker push "${IMAGE}"
+          echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
+
+      - name: Deploy to Cloud Run
+        run: |
+          gcloud run deploy "${SERVICE_NAME}" \
+            --image="${IMAGE}" \
+            --region="${REGION}" \
+            --project="${PROJECT_ID}" \
+            --service-account="${RUNTIME_SA_EMAIL}" \
+            --no-allow-unauthenticated \
+            --port=8091 \
+            --min-instances=0 \
+            --max-instances=2 \
+            --memory=512Mi \
+            --cpu=1 \
+            --timeout=60 \
+            --set-env-vars="^|^PORT=8091|SPRING_PROFILES_ACTIVE=prod|ALLOWED_ORIGINS=${ALLOWED_ORIGINS}|PORTFOLIO_BASE_URL=${{ vars.PORTFOLIO_BASE_URL }}|ADMIN_SERVICE_BASE_URL=${{ vars.ADMIN_SERVICE_BASE_URL }}|NOTIFICATION_SERVICE_BASE_URL=${{ vars.NOTIFICATION_SERVICE_BASE_URL }}" \
+            --update-secrets="MCP_GATEWAY_INTERNAL_TOKEN=MCP_GATEWAY_INTERNAL_TOKEN:latest,NOTIFICATION_INTERNAL_TOKEN=NOTIFICATION_INTERNAL_TOKEN:latest,SPRING_DATASOURCE_URL=SPRING_DATASOURCE_URL:latest,SPRING_DATASOURCE_USERNAME=SPRING_DATASOURCE_USERNAME:latest,SPRING_DATASOURCE_PASSWORD=SPRING_DATASOURCE_PASSWORD:latest"
+
+      - name: Smoke test (wait for ready revision)
+        run: |
+          for i in $(seq 1 30); do
+            LATEST_READY=$(gcloud run services describe "${SERVICE_NAME}" \
+              --region="${REGION}" --project="${PROJECT_ID}" \
+              --format='value(status.latestReadyRevisionName)')
+            LATEST_CREATED=$(gcloud run services describe "${SERVICE_NAME}" \
+              --region="${REGION}" --project="${PROJECT_ID}" \
+              --format='value(status.latestCreatedRevisionName)')
+            echo "ready=${LATEST_READY} created=${LATEST_CREATED}"
+            if [ -n "${LATEST_READY}" ] && [ "${LATEST_READY}" = "${LATEST_CREATED}" ]; then
+              echo "Revision ${LATEST_READY} is ready."
+              exit 0
+            fi
+            sleep 5
+          done
+          echo "Latest revision never became ready in time."
+          exit 1

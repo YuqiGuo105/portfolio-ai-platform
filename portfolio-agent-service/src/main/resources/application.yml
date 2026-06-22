@@ -1,0 +1,58 @@
+server:
+  port: ${PORT:8090}
+  servlet:
+    context-path: /
+
+spring:
+  application:
+    name: portfolio-agent-service
+  main:
+    # Force MVC despite WebFlux being on the classpath (we use WebFlux only as
+    # a reactive client library for outbound HTTP / SSE consumption).
+    web-application-type: servlet
+  jackson:
+    default-property-inclusion: non_null
+
+agent:
+  model:
+    openai:
+      api-key: ${OPENAI_API_KEY:}
+      base-url: ${OPENAI_BASE_URL:https://api.openai.com/v1}
+
+  intent:
+    openai:
+      # Cheap nano/mini classifier — override with OPENAI_INTENT_MODEL.
+      model: ${OPENAI_INTENT_MODEL:gpt-4o-mini}
+      # Optional stronger model used for borderline confidence.
+      escalation-model: ${OPENAI_INTENT_ESCALATION_MODEL:}
+      timeout-ms: ${OPENAI_INTENT_TIMEOUT_MS:15000}
+    confidence:
+      read-threshold: ${MCP_INTENT_CONFIDENCE_READ_THRESHOLD:0.85}
+      clarify-threshold: ${MCP_INTENT_CONFIDENCE_CLARIFY_THRESHOLD:0.65}
+    pending-action:
+      ttl-seconds: ${MCP_PENDING_ACTION_TTL_S:300}
+
+  sse:
+    keep-alive-interval-ms: ${AGENT_SSE_KEEPALIVE_MS:15000}
+    timeout-ms: ${AGENT_SSE_TIMEOUT_MS:120000}
+
+mcp-gateway:
+  base-url: ${MCP_GATEWAY_BASE_URL:http://localhost:8091}
+  internal-token: ${MCP_GATEWAY_INTERNAL_TOKEN:}
+  timeout-ms: ${MCP_GATEWAY_TIMEOUT_MS:30000}
+
+cors:
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    site.yuqi.agent: INFO

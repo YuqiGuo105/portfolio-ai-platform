@@ -1,0 +1,64 @@
+server:
+  port: ${PORT:8091}
+
+spring:
+  application:
+    name: portfolio-mcp-gateway
+  main:
+    web-application-type: servlet
+  jackson:
+    default-property-inclusion: non_null
+  # Supabase wired but Flyway is OFF — the gateway owns no schema in Sprint 1.
+  datasource:
+    url: ${SPRING_DATASOURCE_URL:}
+    username: ${SPRING_DATASOURCE_USERNAME:}
+    password: ${SPRING_DATASOURCE_PASSWORD:}
+  flyway:
+    enabled: false
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+
+mcp:
+  internal-token: ${MCP_GATEWAY_INTERNAL_TOKEN:}
+  catalog:
+    location: classpath:tool-catalog.yaml
+  audit:
+    # Sprint 1 audit destination: structured logs (Cloud Logging picks them
+    # up automatically on Cloud Run). Future Sprint can swap in Supabase.
+    enabled: true
+  idempotency:
+    ttl-seconds: ${MCP_IDEMPOTENCY_TTL_S:3600}
+
+domain:
+  portfolio:
+    base-url: ${PORTFOLIO_BASE_URL:http://localhost:3000}
+    timeout-ms: ${PORTFOLIO_TIMEOUT_MS:15000}
+  admin:
+    base-url: ${ADMIN_SERVICE_BASE_URL:http://localhost:8081}
+    timeout-ms: ${ADMIN_TIMEOUT_MS:15000}
+  notification:
+    base-url: ${NOTIFICATION_SERVICE_BASE_URL:http://localhost:8082}
+    internal-token: ${NOTIFICATION_INTERNAL_TOKEN:}
+    timeout-ms: ${NOTIFICATION_TIMEOUT_MS:15000}
+
+security:
+  supabase-jwt-secret: ${SUPABASE_JWT_SECRET:}
+  admin-allowed-emails: ${ADMIN_ALLOWED_EMAILS:}
+
+cors:
+  allowed-origins: ${ALLOWED_ORIGINS:http://localhost:3000}
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info
+  endpoint:
+    health:
+      show-details: never
+
+logging:
+  level:
+    site.yuqi.mcp: INFO

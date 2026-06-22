@@ -1,0 +1,86 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<project xmlns="http://maven.apache.org/POM/4.0.0"
+         xmlns:xsi="http://www.w3.org/2001/XMLSchema-instance"
+         xsi:schemaLocation="http://maven.apache.org/POM/4.0.0
+                             http://maven.apache.org/xsd/maven-4.0.0.xsd">
+    <modelVersion>4.0.0</modelVersion>
+
+    <parent>
+        <groupId>org.springframework.boot</groupId>
+        <artifactId>spring-boot-starter-parent</artifactId>
+        <version>3.3.4</version>
+        <relativePath/>
+    </parent>
+
+    <groupId>site.yuqi</groupId>
+    <artifactId>portfolio-ai-platform</artifactId>
+    <version>1.0.0</version>
+    <packaging>pom</packaging>
+    <name>portfolio-ai-platform</name>
+    <description>
+        AI orchestration layer for the Portfolio platform.
+
+        Sprint 1 multi-module parent. Both child services are stateless Spring
+        Boot 3.3 apps targeting Java 21:
+
+          * portfolio-agent-service  — chat / intent / model routing / tool
+                                       planning / SSE streaming
+          * portfolio-mcp-gateway    — MCP tool registry, parameter + risk
+                                       validation, audit, idempotency, and
+                                       *forward-only* HTTP adapters into the
+                                       domain services (Portfolio Next.js,
+                                       portfolio-admin-service,
+                                       portfolio-notification-service).
+
+        The gateway must NEVER write Supabase tables directly or construct
+        Kafka payloads on the LLM's behalf — every write tool fans out to the
+        already-existing domain service that owns the data.
+    </description>
+
+    <modules>
+        <module>portfolio-agent-service</module>
+        <module>portfolio-mcp-gateway</module>
+    </modules>
+
+    <properties>
+        <java.version>21</java.version>
+        <lombok.version>1.18.38</lombok.version>
+        <springdoc.version>2.6.0</springdoc.version>
+    </properties>
+
+    <dependencyManagement>
+        <dependencies>
+            <dependency>
+                <groupId>org.springdoc</groupId>
+                <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
+                <version>${springdoc.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.projectlombok</groupId>
+                <artifactId>lombok</artifactId>
+                <version>${lombok.version}</version>
+            </dependency>
+        </dependencies>
+    </dependencyManagement>
+
+    <build>
+        <pluginManagement>
+            <plugins>
+                <plugin>
+                    <groupId>org.apache.maven.plugins</groupId>
+                    <artifactId>maven-compiler-plugin</artifactId>
+                    <configuration>
+                        <release>21</release>
+                        <annotationProcessorPaths>
+                            <path>
+                                <groupId>org.projectlombok</groupId>
+                                <artifactId>lombok</artifactId>
+                                <version>${lombok.version}</version>
+                            </path>
+                        </annotationProcessorPaths>
+                    </configuration>
+                </plugin>
+            </plugins>
+        </pluginManagement>
+    </build>
+</project>
