@@ -96,7 +96,7 @@ jobs:
             --region="${REGION}" \
             --project="${PROJECT_ID}" \
             --service-account="${RUNTIME_SA_EMAIL}" \
-            --no-allow-unauthenticated \
+            --allow-unauthenticated \
             --port=8091 \
             --min-instances=0 \
             --max-instances=2 \
