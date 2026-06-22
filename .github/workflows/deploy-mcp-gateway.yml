@@ -1,6 +1,12 @@
 name: Deploy portfolio-mcp-gateway
 
 on:
+  # Auto-deploy when CI passes on main (green-gate)
+  workflow_run:
+    workflows: ["CI \u2013 Build & Test"]
+    branches: [main]
+    types: [completed]
+
   workflow_dispatch:
     inputs:
       image_tag:
@@ -28,6 +34,10 @@ env:
 
 jobs:
   deploy:
+    # When triggered by workflow_run, only proceed if CI succeeded.
+    if: >
+      github.event_name != 'workflow_run' ||
+      github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
 
     steps:

@@ -1,0 +1,109 @@
+name: CI – Build & Test
+
+on:
+  push:
+    branches:
+      - main
+      - "feat/**"
+      - "fix/**"
+      - "chore/**"
+  pull_request:
+    branches:
+      - main
+
+permissions:
+  contents: read
+  checks: write         # needed for test-reporter actions
+  pull-requests: write  # allow posting coverage summaries
+
+jobs:
+  # ─────────────────────────────────────────────────────────────────────────
+  # Build & test both services in one Maven reactor invocation.
+  # Each module still has its own test report section for easy triage.
+  # ─────────────────────────────────────────────────────────────────────────
+  build-and-test:
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: Checkout
+        uses: actions/checkout@v4
+
+      - name: Set up JDK 21
+        uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: "21"
+          cache: maven
+
+      # ── Full reactor build: compile + test + package ─────────────────────
+      - name: Build & test all modules
+        run: |
+          mvn -B \
+            -Pcoverage \
+            clean verify \
+            --fail-at-end \
+            -Dsurefire.rerunFailingTestsCount=1 \
+            2>&1 | tee mvn-output.txt
+        # --fail-at-end lets both modules finish even if one has failures,
+        # so we always upload test reports.
+        # -Pcoverage activates the Jacoco profile defined in parent pom.xml.
+
+      # ── Surefire XML reports → GitHub Checks ─────────────────────────────
+      - name: Publish agent-service test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: "agent-service – JUnit results"
+          path: "portfolio-agent-service/target/surefire-reports/*.xml"
+          reporter: java-junit
+          fail-on-error: false
+
+      - name: Publish mcp-gateway test results
+        uses: dorny/test-reporter@v2
+        if: always()
+        with:
+          name: "mcp-gateway – JUnit results"
+          path: "portfolio-mcp-gateway/target/surefire-reports/*.xml"
+          reporter: java-junit
+          fail-on-error: false
+
+      # ── Upload JARs as artifacts (useful for debugging CI) ────────────────
+      - name: Upload agent-service JAR
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: portfolio-agent-service-jar
+          path: portfolio-agent-service/target/portfolio-agent-service-*.jar
+          retention-days: 7
+
+      - name: Upload mcp-gateway JAR
+        uses: actions/upload-artifact@v4
+        if: success()
+        with:
+          name: portfolio-mcp-gateway-jar
+          path: portfolio-mcp-gateway/target/portfolio-mcp-gateway-*.jar
+          retention-days: 7
+
+      # ── Jacoco coverage reports ───────────────────────────────────────────
+      - name: Upload agent-service Jacoco report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-agent-service
+          path: portfolio-agent-service/target/site/jacoco/
+          retention-days: 14
+
+      - name: Upload mcp-gateway Jacoco report
+        uses: actions/upload-artifact@v4
+        if: always()
+        with:
+          name: jacoco-mcp-gateway
+          path: portfolio-mcp-gateway/target/site/jacoco/
+          retention-days: 14
+
+      # ── Summary on failure ────────────────────────────────────────────────
+      - name: Print Maven output on failure
+        if: failure()
+        run: |
+          echo "=== Last 100 lines of Maven output ==="
+          tail -100 mvn-output.txt

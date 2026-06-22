@@ -83,4 +83,57 @@
             </plugins>
         </pluginManagement>
     </build>
+
+    <!-- ─── Coverage profile (activated by -Pcoverage in CI) ─────────────── -->
+    <profiles>
+        <profile>
+            <id>coverage</id>
+            <build>
+                <plugins>
+                    <plugin>
+                        <groupId>org.jacoco</groupId>
+                        <artifactId>jacoco-maven-plugin</artifactId>
+                        <version>0.8.12</version>
+                        <executions>
+                            <!-- Instrument JVM before Surefire runs -->
+                            <execution>
+                                <id>prepare-agent</id>
+                                <goals><goal>prepare-agent</goal></goals>
+                            </execution>
+                            <!-- Generate HTML/XML report in target/site/jacoco -->
+                            <execution>
+                                <id>report</id>
+                                <phase>verify</phase>
+                                <goals><goal>report</goal></goals>
+                            </execution>
+                            <!-- Enforce minimum coverage: 60% line coverage per module -->
+                            <execution>
+                                <id>check</id>
+                                <goals><goal>check</goal></goals>
+                                <configuration>
+                                    <rules>
+                                        <rule>
+                                            <element>BUNDLE</element>
+                                            <limits>
+                                                <limit>
+                                                    <counter>LINE</counter>
+                                                    <value>COVEREDRATIO</value>
+                                                    <minimum>0.60</minimum>
+                                                </limit>
+                                            </limits>
+                                        </rule>
+                                    </rules>
+                                    <!-- Only enforce on packages that have real production code -->
+                                    <includes>
+                                        <include>site/yuqi/**</include>
+                                    </includes>
+                                </configuration>
+                            </execution>
+                        </executions>
+                    </plugin>
+                </plugins>
+            </build>
+        </profile>
+    </profiles>
+
 </project>
