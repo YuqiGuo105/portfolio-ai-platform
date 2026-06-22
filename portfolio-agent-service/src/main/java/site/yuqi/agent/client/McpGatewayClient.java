@@ -63,7 +63,7 @@ public class McpGatewayClient {
                         h.setBearerAuth(internalToken);
                     }
                     if (invocation.getIdempotencyKey() != null) {
-                        h.add(HttpHeaders.IDEMPOTENCY_KEY, invocation.getIdempotencyKey());
+                        h.add("Idempotency-Key", invocation.getIdempotencyKey());
                     }
                 })
                 .bodyValue(args)
