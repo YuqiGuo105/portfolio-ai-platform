@@ -7,6 +7,7 @@ import lombok.Builder;
 import lombok.Data;
 import lombok.NoArgsConstructor;
 
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -49,4 +50,14 @@ public class IntentRequest {
 
     /** Set on confirmation leg: explicit user decision. */
     private Boolean confirm;
+
+    /**
+     * Optional recent conversation turns, newest last (max 6).
+     * Each entry contains "role" ("user" or "assistant") and "content".
+     * Classifiers use this to extract entities from earlier turns so that
+     * follow-up messages like "send it" can resolve name/email/message
+     * without requiring the user to repeat them.
+     * Nullable and ignored when null — fully backward-compatible.
+     */
+    private List<Map<String, String>> recentMessages;
 }

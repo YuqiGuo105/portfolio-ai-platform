@@ -198,7 +198,9 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             2. Extract entities from the user input. Use the entity keys exactly as named in requiredEntities / optionalEntities.
             3. Return JSON only. No prose, no markdown fences.
             4. Do NOT execute any action.
-            5. NEVER invent sourceId, jobId, subscriberId, recipientId, email, or any internal id. If such an id is needed but absent from the user message, list it in missingEntities and return CLARIFICATION_NEEDED.
+            5. NEVER invent sourceId, jobId, subscriberId, recipientId, or any opaque internal ID — even if something similar appears in CONVERSATION HISTORY.
+               You MAY extract plain user-supplied fields (name, email, message, subject, keyword, body, content, etc.) from CONVERSATION HISTORY if the user explicitly provided them in an earlier turn.
+               Return CLARIFICATION_NEEDED only when a required field (plain or opaque) is truly absent from BOTH the current utterance AND all of the conversation history.
             6. For non-READ_ONLY tools, requiresConfirmation MUST be true.
             7. If the user intent is ambiguous, return CLARIFICATION_NEEDED with a helpful clarificationQuestion in the user's language.
             8. If the request is unrelated to the available tools, return GENERAL_CHAT (small-talk / open question) or UNKNOWN (out of scope).
@@ -232,6 +234,24 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             try {
                 n.set("pageContext", objectMapper.valueToTree(request.getPageContext()));
             } catch (Exception ignored) { /* best-effort hint */ }
+        }
+        // Include conversation history so the classifier can extract entities
+        // from earlier turns (e.g. name/email/message provided a turn ago).
+        if (request.getRecentMessages() != null && !request.getRecentMessages().isEmpty()) {
+            try {
+                java.util.List<java.util.Map<String, String>> history = request.getRecentMessages();
+                int start = Math.max(0, history.size() - 6);
+                ArrayNode historyNode = objectMapper.createArrayNode();
+                for (int i = start; i < history.size(); i++) {
+                    java.util.Map<String, String> turn = history.get(i);
+                    ObjectNode turnNode = historyNode.addObject();
+                    turnNode.put("role", turn.getOrDefault("role", "user"));
+                    String content = turn.getOrDefault("content", "");
+                    if (content.length() > 600) content = content.substring(0, 600);
+                    turnNode.put("content", content);
+                }
+                n.set("recentMessages", historyNode);
+            } catch (Exception ignored) { /* best-effort */ }
         }
         return n.toString();
     }
