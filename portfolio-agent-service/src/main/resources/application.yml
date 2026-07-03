@@ -51,6 +51,17 @@ agent:
     keep-alive-interval-ms: ${AGENT_SSE_KEEPALIVE_MS:15000}
     timeout-ms: ${AGENT_SSE_TIMEOUT_MS:120000}
 
+  # Fail-closed authentication for /api/intent and /api/chat.
+  # See SupabaseJwtAuthFilter for the full rule table. In prod, EITHER
+  # supabase-jwt-secret OR internal-token MUST be set — leaving both empty
+  # with allow-anonymous=false makes every protected request return 401.
+  auth:
+    supabase-jwt-secret: ${SUPABASE_JWT_SECRET:}
+    internal-token: ${AGENT_SERVICE_INTERNAL_TOKEN:}
+    admin-emails: ${ADMIN_ALLOWED_EMAILS:}
+    allow-anonymous: ${AGENT_AUTH_ALLOW_ANONYMOUS:false}
+    docs-exposed: ${AGENT_AUTH_DOCS_EXPOSED:false}
+
 mcp-gateway:
   base-url: ${MCP_GATEWAY_BASE_URL:http://localhost:8091}
   internal-token: ${MCP_GATEWAY_INTERNAL_TOKEN:}
@@ -63,11 +74,27 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: never
+  metrics:
+    tags:
+      application: portfolio-agent-service
 
 logging:
   level:
     site.yuqi.agent: INFO
+
+---
+# Prod profile: lock down the OpenAPI surface. Anyone who happens to know
+# the Cloud Run URL should NOT be able to enumerate the internal API shape.
+spring:
+  config:
+    activate:
+      on-profile: prod
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

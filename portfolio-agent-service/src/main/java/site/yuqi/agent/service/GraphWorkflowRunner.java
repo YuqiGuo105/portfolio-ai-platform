@@ -40,6 +40,7 @@ public class GraphWorkflowRunner {
             IntentRequest ir = IntentRequest.builder()
                     .sessionId(request.getSessionId())
                     .userEmail(request.getUserEmail())
+                    .userRoles(request.getUserRoles())
                     .utterance(utterance)
                     .pageContext(request.getPageContext())
                     .build();

@@ -57,6 +57,16 @@ public class ToolController {
     @Value("${mcp.internal-token:}")
     private String internalToken;
 
+    /**
+     * Escape hatch for local development. When {@code true} and no
+     * {@code mcp.internal-token} is configured, requests without a valid
+     * bearer are still accepted. <strong>Must stay {@code false} in prod.</strong>
+     * When {@code false} (default) an unset internal-token means every
+     * protected request 401s — fail-closed by design.
+     */
+    @Value("${mcp.auth.allow-anonymous:false}")
+    private boolean allowAnonymous;
+
     @GetMapping("/health")
     public Map<String, String> health() {
         return Map.of("status", "ok");
@@ -152,8 +162,10 @@ public class ToolController {
 
     private boolean authorized(String authorizationHeader) {
         if (internalToken == null || internalToken.isBlank()) {
-            // Sprint 1: empty token disables auth (useful for local dev).
-            return true;
+            // fail-closed: without a configured token we cannot verify
+            // anyone. Only local dev may explicitly opt out via
+            // mcp.auth.allow-anonymous=true.
+            return allowAnonymous;
         }
         if (authorizationHeader == null) return false;
         String expected = "Bearer " + internalToken;

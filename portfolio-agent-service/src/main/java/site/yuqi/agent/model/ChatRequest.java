@@ -27,6 +27,14 @@ public class ChatRequest {
 
     private String userEmail;
 
+    /**
+     * Comma-separated permission roles ({@code VIEWER,EDITOR,PUBLISHER,ADMIN}).
+     * <strong>Ignored</strong> for JWT-authenticated callers — the filter
+     * overwrites this with server-derived roles before the controller runs.
+     * Only meaningful when the caller is the internal Portfolio proxy.
+     */
+    private String userRoles;
+
     @NotNull
     @Size(min = 1, max = 50)
     private List<Message> messages;

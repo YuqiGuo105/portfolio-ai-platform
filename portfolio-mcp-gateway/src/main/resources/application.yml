@@ -22,6 +22,10 @@ spring:
 
 mcp:
   internal-token: ${MCP_GATEWAY_INTERNAL_TOKEN:}
+  # Fail-closed: when internal-token is unset, every /api/tools request 401s
+  # unless this override is explicitly enabled (local dev only).
+  auth:
+    allow-anonymous: ${MCP_AUTH_ALLOW_ANONYMOUS:false}
   catalog:
     location: classpath:tool-catalog.yaml
   audit:
@@ -54,11 +58,28 @@ management:
   endpoints:
     web:
       exposure:
-        include: health,info
+        include: health,info,prometheus
   endpoint:
     health:
       show-details: never
+  metrics:
+    tags:
+      application: portfolio-mcp-gateway
 
 logging:
   level:
     site.yuqi.mcp: INFO
+
+---
+# Prod profile: hide the OpenAPI surface. Anyone who happens to know the
+# Cloud Run URL should NOT be able to enumerate the internal tool catalog
+# shape via /v3/api-docs.
+spring:
+  config:
+    activate:
+      on-profile: prod
+springdoc:
+  api-docs:
+    enabled: false
+  swagger-ui:
+    enabled: false

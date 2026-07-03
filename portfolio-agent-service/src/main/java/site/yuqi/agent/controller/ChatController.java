@@ -1,6 +1,7 @@
 package site.yuqi.agent.controller;
 
 import com.fasterxml.jackson.databind.ObjectMapper;
+import jakarta.servlet.http.HttpServletRequest;
 import jakarta.validation.Valid;
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
@@ -16,6 +17,7 @@ import reactor.core.Disposable;
 import site.yuqi.agent.model.ChatRequest;
 import site.yuqi.agent.model.ChatStreamEvent;
 import site.yuqi.agent.service.GraphWorkflowRunner;
+import site.yuqi.agent.web.AuthenticatedPrincipal;
 
 import java.io.IOException;
 
@@ -44,7 +46,24 @@ public class ChatController {
     }
 
     @PostMapping(value = "/chat", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
-    public SseEmitter chat(@Valid @RequestBody ChatRequest request) {
+    public SseEmitter chat(@Valid @RequestBody ChatRequest request, HttpServletRequest httpReq) {
+        // Overwrite caller identity with the server-derived principal so a
+        // client can't spoof admin powers by putting them in the body.
+        AuthenticatedPrincipal principal = AuthenticatedPrincipal.of(httpReq);
+        switch (principal.source()) {
+            case USER_JWT -> {
+                request.setUserEmail(principal.email());
+                request.setUserRoles(principal.rolesCsv());
+            }
+            case ANONYMOUS -> {
+                request.setUserEmail(null);
+                request.setUserRoles(null);
+            }
+            case INTERNAL_PROXY -> {
+                // Trust body — the proxy already authenticated the end user.
+            }
+        }
+
         SseEmitter emitter = new SseEmitter(sseTimeoutMs);
 
         Disposable subscription = workflowRunner.run(request)

@@ -34,7 +34,14 @@ public class IntentRequest {
 
     /**
      * Comma-separated permission roles ({@code VIEWER,EDITOR,PUBLISHER,ADMIN}).
-     * Sourced upstream from the authenticated session.
+     *
+     * <p><strong>Never trust the value the client sends.</strong> The
+     * {@code SupabaseJwtAuthFilter} overwrites this field on every request
+     * that arrives with a Supabase JWT or no bearer at all. It is only
+     * honored as-supplied when the caller presented
+     * {@code agent.auth.internal-token} — that path is reserved for the
+     * Portfolio Next.js proxy, which has already Supabase-verified the end
+     * user server-side and derived the roles authoritatively.
      */
     private String userRoles;
 
