@@ -3,10 +3,6 @@
 AI orchestration layer for the Portfolio site. Three Spring Boot 3.3 / Java 21
 microservices on Google Cloud Run.
 
-## Architecture docs
-
-- [AI Customer Agent Platform + Aiven OpenSearch 实施方案](docs/ai-customer-agent-opensearch-plan.zh.md)
-
 | Service | Port | Role |
 |---|---|---|
 | **`portfolio-agent-service`** | 8090 | Full agent pipeline: input safety → knowledge retrieval → LLM generation → output safety; SSE streaming; intent classification; RBAC; event observability |
@@ -111,8 +107,8 @@ flowchart TB
     CC --> IO
     IC --> IO
     IO --> IFC
-    IFC <|.. GEMCLS
-    IFC <|.. OAICLS
+    GEMCLS -.->|implements| IFC
+    OAICLS -.->|implements| IFC
     IO --> IV
     IV --> TR
     IO --> ER
@@ -214,10 +210,10 @@ flowchart TB
     TR --> TCAT
     TCAT --> TD
     AR --> DSA
-    DSA <|.. AHA
-    AHA <|-- ADMA
-    AHA <|-- NOTIFA
-    AHA <|-- PORTA
+    AHA -.->|implements| DSA
+    ADMA -->|extends| AHA
+    NOTIFA -->|extends| AHA
+    PORTA -->|extends| AHA
 ```
 
 ---
