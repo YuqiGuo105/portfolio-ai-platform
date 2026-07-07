@@ -1,7 +1,7 @@
 package site.yuqi.agent.conversation;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
 import org.springframework.transaction.annotation.Transactional;
@@ -13,20 +13,28 @@ import java.util.Map;
 import java.util.UUID;
 
 /**
- * Conversation persistence — writes conversation/message/run state to Aiven PG.
- * Also records structured events to the outbox for OpenSearch sync.
+ * Conversation persistence — writes conversation/message/run state to Postgres.
+ * Degrades gracefully when no DataSource is configured (JdbcTemplate absent).
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class ConversationService {
 
-    private final JdbcTemplate jdbc;
+    @Autowired(required = false)
+    private JdbcTemplate jdbc;
     private final EventRecorder eventRecorder;
+
+    public ConversationService(EventRecorder eventRecorder) {
+        this.eventRecorder = eventRecorder;
+    }
 
     @Transactional
     public UUID createConversation(String userId, String channel) {
         UUID id = UUID.randomUUID();
+        if (jdbc == null) {
+            log.debug("ConversationService: no JdbcTemplate — conversation {} not persisted", id);
+            return id;
+        }
         jdbc.update("""
                 insert into conversation (id, user_id, channel, status, created_at, updated_at)
                 values (?, ?, ?, 'active', now(), now())

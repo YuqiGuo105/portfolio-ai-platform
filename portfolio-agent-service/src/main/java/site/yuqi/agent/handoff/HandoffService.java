@@ -1,7 +1,7 @@
 package site.yuqi.agent.handoff;
 
-import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Service;
@@ -26,12 +26,17 @@ import java.util.UUID;
  */
 @Slf4j
 @Service
-@RequiredArgsConstructor
 public class HandoffService {
 
-    private final JdbcTemplate jdbc;
+    @Autowired(required = false)
+    private JdbcTemplate jdbc;
     private final WebClient.Builder webClientBuilder;
     private final EventRecorder eventRecorder;
+
+    public HandoffService(WebClient.Builder webClientBuilder, EventRecorder eventRecorder) {
+        this.webClientBuilder = webClientBuilder;
+        this.eventRecorder = eventRecorder;
+    }
 
     @Value("${handoff.enabled:true}")
     private boolean enabled;
@@ -51,17 +56,21 @@ public class HandoffService {
                               HandoffReason reason, String summary) {
         UUID ticketId = UUID.randomUUID();
 
-        // Persist to Aiven PG
-        jdbc.update("""
-                insert into handoff_ticket (id, conversation_id, run_id, user_id, reason, summary, status, created_at)
-                values (?, ?, ?, ?, ?, ?, 'created', now())
-                """, ticketId, conversationId, runId, userId, reason.name(), summary);
+        if (jdbc != null) {
+            // Persist to Postgres
+            jdbc.update("""
+                    insert into handoff_ticket (id, conversation_id, run_id, user_id, reason, summary, status, created_at)
+                    values (?, ?, ?, ?, ?, ?, 'created', now())
+                    """, ticketId, conversationId, runId, userId, reason.name(), summary);
+        } else {
+            log.warn("HandoffService: no JdbcTemplate — handoff ticket {} not persisted (DB not configured)", ticketId);
+        }
 
         // Forward to external CRM if configured
         String externalId = null;
         if (enabled && crmWebhookUrl != null && !crmWebhookUrl.isBlank()) {
             externalId = forwardToCrm(ticketId, conversationId, userId, reason, summary);
-            if (externalId != null) {
+            if (externalId != null && jdbc != null) {
                 jdbc.update("update handoff_ticket set external_ticket_id = ?, status = 'forwarded' where id = ?",
                         externalId, ticketId);
             }
