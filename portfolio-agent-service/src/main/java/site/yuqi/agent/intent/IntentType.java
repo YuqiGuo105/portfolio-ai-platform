@@ -19,6 +19,7 @@ public enum IntentType {
     GENERAL_CHAT,
 
     KNOWLEDGE_QA,
+    HANDOFF_REQUESTED,
 
     ADMIN_SEARCH_CONTENT,
     ADMIN_GET_CONTENT,

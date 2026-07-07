@@ -25,7 +25,11 @@ public class AgentStreamRequest {
     private String mode;          // "FAST" or "DEEPTHINKING"
     private String scopeMode;     // "OWNER_ONLY" or "GENERAL"
     private List<String> fileUrls;
+    private String userId;
     private String userEmail;
+    private String userRoles;
+    private String pendingActionId;
+    private Boolean confirm;
     private List<ConversationTurn> conversationHistory;
     private Map<String, Object> ext;   // { currentPageUrl, currentPagePattern, pageContextText, pageTitle }
 

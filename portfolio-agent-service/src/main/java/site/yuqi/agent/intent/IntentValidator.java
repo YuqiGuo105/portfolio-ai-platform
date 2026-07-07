@@ -49,6 +49,16 @@ public class IntentValidator {
         }
 
         switch (intent.intent()) {
+            case KNOWLEDGE_QA -> {
+                return ValidationResult.builder().status(Status.GENERAL_CHAT).build();
+            }
+            case HANDOFF_REQUESTED -> {
+                return ValidationResult.builder()
+                        .status(Status.CLARIFY)
+                        .message(nonBlank(intent.clarificationQuestion(),
+                                "I can connect you with a human support agent. Please confirm."))
+                        .build();
+            }
             case GENERAL_CHAT -> {
                 return ValidationResult.builder().status(Status.GENERAL_CHAT).build();
             }

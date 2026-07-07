@@ -123,6 +123,24 @@ class IntentValidatorTest {
     }
 
     @Test
+    void knowledgeQaPassesThroughAsNonToolRoute() {
+        IntentResult r = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.91,
+                "en", null, Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        assertThat(validator.validate(r).getStatus()).isEqualTo(IntentValidator.Status.GENERAL_CHAT);
+    }
+
+    @Test
+    void handoffRequestAsksForConfirmation() {
+        IntentResult r = new IntentResult(
+                IntentType.HANDOFF_REQUESTED, null, 0.91,
+                "en", null, Map.of(), RiskLevel.READ_ONLY, false, List.of(), "Connect me to support?");
+        IntentValidator.ValidationResult v = validator.validate(r);
+        assertThat(v.getStatus()).isEqualTo(IntentValidator.Status.CLARIFY);
+        assertThat(v.getMessage()).contains("support");
+    }
+
+    @Test
     void clarificationNeededIsClarify() {
         IntentResult r = new IntentResult(
                 IntentType.CLARIFICATION_NEEDED, "admin.publish_content", 0.86,

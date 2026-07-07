@@ -198,7 +198,11 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             The user may write in any language (English, Chinese, Spanish, Japanese, ...).
 
             Your job:
-            1. Select exactly one tool name from the ALLOWED tool list, or return CLARIFICATION_NEEDED / GENERAL_CHAT / UNKNOWN.
+            1. Return a structured route decision:
+               - Select exactly one tool name from the ALLOWED tool list for operational platform tasks.
+               - Return KNOWLEDGE_QA with targetTool=null when the user asks a portfolio/site-content question best answered from the knowledge base.
+               - Return HANDOFF_REQUESTED with targetTool=null when the user asks for a human, support agent, or manual escalation.
+               - Return CLARIFICATION_NEEDED / GENERAL_CHAT / UNKNOWN when no tool or knowledge retrieval should run.
             2. Extract entities from the user input. Use the entity keys exactly as named in requiredEntities / optionalEntities.
             3. Return JSON only. No prose, no markdown fences.
             4. Do NOT execute any action.
@@ -207,7 +211,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
                Return CLARIFICATION_NEEDED only when a required field (plain or opaque) is truly absent from BOTH the current utterance AND all of the conversation history.
             6. For non-READ_ONLY tools, requiresConfirmation MUST be true.
             7. If the user intent is ambiguous, return CLARIFICATION_NEEDED with a helpful clarificationQuestion in the user's language.
-            8. If the request is unrelated to the available tools, return GENERAL_CHAT (small-talk / open question) or UNKNOWN (out of scope).
+            8. If the request is unrelated to the available tools and not a portfolio knowledge-base question, return GENERAL_CHAT (small-talk / open question) or UNKNOWN (out of scope).
             9. Keep the original language in the language field (ISO 639-1: en, zh, es, ja, ...).
             10. normalizedQuery can be an English paraphrase suitable for internal search.
             11. Analytics tools are aggregate-only. Never use them to answer "who visited", emails, IPs, session IDs, exact timestamps, or individual visitor tracking.
@@ -219,7 +223,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
 
             Output JSON schema (return EXACTLY these fields, no extras):
             {
-              "intent": "<IntentType enum value>",
+              "intent": "<IntentType enum value, including KNOWLEDGE_QA or HANDOFF_REQUESTED when appropriate>",
               "targetTool": "<tool name from allowed list, or null>",
               "confidence": 0.0,
               "language": "<ISO 639-1>",

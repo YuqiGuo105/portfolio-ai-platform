@@ -22,6 +22,11 @@ public class AnalyticsPrivacyPolicy {
             "userAgent", "fingerprint", "distinctId", "includeRaw", "raw"
     );
 
+    private static final Set<String> ALLOWED_DIMENSIONS = Set.of(
+            "country", "region", "city", "deviceCategory", "deviceType",
+            "page", "pagePath", "referrer", "source"
+    );
+
     @Value("${mcp.analytics.min-window-days:7}")
     private long minWindowDays;
 
@@ -34,6 +39,15 @@ public class AnalyticsPrivacyPolicy {
             if (args.containsKey(forbidden)) {
                 return Outcome.fail("Analytics tools cannot accept visitor-specific or raw-data parameter: "
                         + forbidden);
+            }
+        }
+
+        Object dimensions = args.get("dimensions");
+        if (dimensions instanceof Iterable<?> iterable) {
+            for (Object dimension : iterable) {
+                if (dimension == null || !ALLOWED_DIMENSIONS.contains(dimension.toString())) {
+                    return Outcome.fail("Analytics dimension is not privacy-approved: " + dimension);
+                }
             }
         }
 

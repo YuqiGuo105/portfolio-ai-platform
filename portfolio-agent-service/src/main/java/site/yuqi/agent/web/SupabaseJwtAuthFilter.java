@@ -24,12 +24,12 @@ import java.util.Locale;
 import java.util.Set;
 
 /**
- * Fail-closed authentication filter for the intent and chat endpoints.
+ * Fail-closed authentication filter for the intent, chat, and streaming RAG endpoints.
  *
  * <p>Cloud Run deploys the agent with {@code --allow-unauthenticated}, so
- * this filter is the ONLY defense against public writes. The prior state of
- * the world was that anyone on the internet could POST {@code /api/intent}
- * or {@code /api/chat} anonymously with a request body claiming
+ * this filter is the ONLY defense against public writes. Without it, anyone
+ * on the internet could POST {@code /api/intent}, {@code /api/chat}, or
+ * {@code /api/rag/answer/stream} anonymously with a request body claiming
  * {@code userRoles=ADMIN} and hit admin/notification write tools.
  *
  * <p>Accepted credentials on protected endpoints:
@@ -68,7 +68,7 @@ import java.util.Set;
 public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
 
     private static final Set<String> PROTECTED_PREFIXES = Set.of(
-            "/api/intent", "/api/chat");
+            "/api/intent", "/api/chat", "/api/rag");
 
     /** Endpoints that must always be reachable without a bearer. */
     private static final Set<String> ALWAYS_OPEN = Set.of(
@@ -96,7 +96,7 @@ public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
         this.docsExposed = docsExposed;
         if (this.jwtSecret == null && this.internalToken.isEmpty() && !allowAnonymous) {
             log.warn("SupabaseJwtAuthFilter has no credentials configured: every " +
-                    "/api/intent and /api/chat request will 401. Set agent.auth.supabase-jwt-secret " +
+                    "/api/intent, /api/chat, and /api/rag request will 401. Set agent.auth.supabase-jwt-secret " +
                     "and/or agent.auth.internal-token, or set agent.auth.allow-anonymous=true " +
                     "for local development.");
         }

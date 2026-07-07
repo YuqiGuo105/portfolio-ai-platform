@@ -56,14 +56,22 @@ public class PolicyGuard {
             Map.entry("notification.unsubscribe_subscriber", Role.ADMIN)
     );
 
+    private static final Set<String> ANONYMOUS_READ_TOOLS = Set.of(
+            "admin.search_content",
+            "admin.get_content"
+    );
+
     public PolicyDecision check(ToolDefinition tool,
                                 Map<String, Object> resolvedArgs,
                                 IntentRequest request) {
         Role required = REQUIRED_ROLE.getOrDefault(tool.name(), Role.ADMIN);
         Set<Role> userRoles = parseRoles(request.getUserRoles());
 
-        // Anonymous callers get implicit VIEWER for public reads only.
-        if (userRoles.isEmpty() && tool.riskLevel() == RiskLevel.READ_ONLY && required == Role.VIEWER) {
+        // Anonymous callers get implicit VIEWER only for explicitly public reads.
+        if (userRoles.isEmpty()
+                && tool.riskLevel() == RiskLevel.READ_ONLY
+                && required == Role.VIEWER
+                && ANONYMOUS_READ_TOOLS.contains(tool.name())) {
             userRoles = Set.of(Role.VIEWER);
         }
 

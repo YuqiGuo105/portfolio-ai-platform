@@ -14,6 +14,7 @@ import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
 import site.yuqi.agent.generation.AgentPipelineService;
 import site.yuqi.agent.model.AgentStreamRequest;
+import site.yuqi.agent.web.AuthenticatedPrincipal;
 
 import java.io.IOException;
 import java.util.Map;
@@ -37,6 +38,23 @@ public class AgentStreamController {
 
     @PostMapping(value = "/answer/stream", produces = MediaType.TEXT_EVENT_STREAM_VALUE)
     public SseEmitter stream(@RequestBody AgentStreamRequest request, HttpServletRequest httpReq) {
+        AuthenticatedPrincipal principal = AuthenticatedPrincipal.of(httpReq);
+        switch (principal.source()) {
+            case USER_JWT -> {
+                request.setUserId(principal.userId());
+                request.setUserEmail(principal.email());
+                request.setUserRoles(principal.rolesCsv());
+            }
+            case ANONYMOUS -> {
+                request.setUserId(null);
+                request.setUserEmail(null);
+                request.setUserRoles(null);
+            }
+            case INTERNAL_PROXY -> {
+                // Trust body — the proxy already authenticated the end user.
+            }
+        }
+
         log.info("Agent stream request session={} question={}",
                 request.getSessionId(),
                 request.getQuestion() != null ? request.getQuestion().substring(0, Math.min(80, request.getQuestion().length())) : "null");

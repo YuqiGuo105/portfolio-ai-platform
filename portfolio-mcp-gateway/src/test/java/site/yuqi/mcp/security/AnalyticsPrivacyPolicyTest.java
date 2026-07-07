@@ -7,6 +7,7 @@ import site.yuqi.mcp.model.RiskLevel;
 import site.yuqi.mcp.model.ToolDefinition;
 import site.yuqi.mcp.model.ToolMode;
 
+import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -68,5 +69,28 @@ class AnalyticsPrivacyPolicyTest {
                 "endDate", "2026-07-07"));
 
         assertThat(outcome.allowed()).isTrue();
+    }
+
+    @Test
+    void acceptsPrivacyApprovedAggregateDimensions() {
+        AnalyticsPrivacyPolicy.Outcome outcome = policy.check(tool, Map.of(
+                "_confirmedTimeRange", true,
+                "startDate", "2026-07-01",
+                "endDate", "2026-07-07",
+                "dimensions", List.of("city", "deviceCategory")));
+
+        assertThat(outcome.allowed()).isTrue();
+    }
+
+    @Test
+    void rejectsRawOrVisitorLevelDimensions() {
+        AnalyticsPrivacyPolicy.Outcome outcome = policy.check(tool, Map.of(
+                "_confirmedTimeRange", true,
+                "startDate", "2026-07-01",
+                "endDate", "2026-07-07",
+                "dimensions", List.of("userAgent")));
+
+        assertThat(outcome.allowed()).isFalse();
+        assertThat(outcome.reason()).contains("dimension");
     }
 }

@@ -73,7 +73,7 @@ public class ToolRegistry {
                 RiskLevel.READ_ONLY,
                 true,
                 Set.of(),
-                Set.of("startDate", "endDate", "granularity", "timeRangePreset")
+                Set.of("startDate", "endDate", "granularity", "timeRangePreset", "dimensions")
         ));
         register(new ToolDefinition(
                 "analytics.get_top_pages",

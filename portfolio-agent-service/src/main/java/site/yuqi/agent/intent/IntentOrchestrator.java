@@ -56,10 +56,23 @@ public class IntentOrchestrator {
         }
         auditService.logClassification(request, intent);
 
+        return handleClassified(request, intent, true);
+    }
+
+    public IntentResponse handlePreclassified(IntentRequest request, IntentResult intent) {
+        if (request.getPendingActionId() != null) {
+            return handleConfirmation(request);
+        }
+        auditService.logClassification(request, intent);
+        return handleClassified(request, intent, false);
+    }
+
+    private IntentResponse handleClassified(IntentRequest request, IntentResult intent, boolean allowEscalation) {
         IntentValidator.ValidationResult v = validator.validate(intent);
 
         // Optional escalation for borderline READ_ONLY confidence.
-        if (v.getStatus() == IntentValidator.Status.CLARIFY
+        if (allowEscalation
+                && v.getStatus() == IntentValidator.Status.CLARIFY
                 && intent.intent() != IntentType.CLARIFICATION_NEEDED
                 && intent.intent() != IntentType.UNKNOWN
                 && intent.targetTool() != null) {

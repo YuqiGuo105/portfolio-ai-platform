@@ -108,6 +108,7 @@ tools:
       - { name: startDate, type: string, required: true, description: "ISO date, inclusive." }
       - { name: endDate,   type: string, required: true, description: "ISO date, inclusive. Minimum range is 7 days." }
       - { name: granularity, type: string, required: false, description: "week | month." }
+      - { name: dimensions, type: array, required: false, description: "Aggregate-only breakdowns, for example country, city, deviceCategory." }
     endpoint:
       target: analytics
       method: GET
