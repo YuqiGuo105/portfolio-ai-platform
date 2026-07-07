@@ -82,11 +82,11 @@ management:
     tags:
       application: portfolio-agent-service
 
-# ─── Aiven PostgreSQL (conversation / run / step / outbox) ───────────────
+# ─── PostgreSQL (conversation / run / step / outbox) ────────────────────────
 spring.datasource:
-  url: ${AIVEN_PG_URL:jdbc:postgresql://pg-bba5beb-yguo105-17e7.d.aivencloud.com:22949/defaultdb?sslmode=require}
-  username: ${AIVEN_PG_USERNAME:avnadmin}
-  password: ${AIVEN_PG_PASSWORD:}
+  url: ${SPRING_DATASOURCE_URL:}
+  username: ${SPRING_DATASOURCE_USERNAME:}
+  password: ${SPRING_DATASOURCE_PASSWORD:}
   hikari:
     maximum-pool-size: 5
 
