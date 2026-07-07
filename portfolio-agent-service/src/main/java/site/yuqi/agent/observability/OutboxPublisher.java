@@ -2,12 +2,12 @@ package site.yuqi.agent.observability;
 
 import com.fasterxml.jackson.core.type.TypeReference;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.opensearch.client.opensearch.OpenSearchClient;
 import org.opensearch.client.opensearch.core.BulkRequest;
 import org.opensearch.client.opensearch.core.BulkResponse;
 import org.opensearch.client.opensearch.core.bulk.IndexOperation;
-import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
@@ -16,30 +16,19 @@ import java.time.LocalDate;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
-import java.util.Optional;
 
 /**
  * Polls outbox_event table and bulk-indexes to OpenSearch daily indexes.
- * Both OutboxRepository and OpenSearchClient are optional so the service
- * starts without DB or OpenSearch configured.
- *
  * Index naming: ai-{event_category}-YYYY.MM.DD
  */
 @Slf4j
 @Component
+@RequiredArgsConstructor
 public class OutboxPublisher {
 
-    @Autowired(required = false)
-    private OutboxRepository outboxRepo;
-
-    @Autowired(required = false)
-    private OpenSearchClient openSearchClient;
-
+    private final OutboxRepository outboxRepo;
+    private final OpenSearchClient openSearchClient;
     private final ObjectMapper objectMapper;
-
-    public OutboxPublisher(ObjectMapper objectMapper) {
-        this.objectMapper = objectMapper;
-    }
 
     @Value("${observability.outbox.batch-size:100}")
     private int batchSize;
@@ -58,9 +47,6 @@ public class OutboxPublisher {
 
     @Scheduled(fixedDelayString = "${observability.outbox.poll-interval-ms:5000}")
     public void publishPendingEvents() {
-        if (outboxRepo == null || openSearchClient == null) {
-            return; // DB or OpenSearch not configured — skip silently
-        }
         List<OutboxRepository.OutboxEvent> pending = outboxRepo.findPendingBatch(batchSize);
         if (pending.isEmpty()) return;
 
