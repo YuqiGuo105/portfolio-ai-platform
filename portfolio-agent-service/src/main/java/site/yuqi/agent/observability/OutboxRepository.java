@@ -2,6 +2,7 @@ package site.yuqi.agent.observability;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.jdbc.core.JdbcTemplate;
 import org.springframework.stereotype.Repository;
 
@@ -13,6 +14,7 @@ import java.util.UUID;
 @Slf4j
 @Repository
 @RequiredArgsConstructor
+@ConditionalOnBean(JdbcTemplate.class)
 public class OutboxRepository {
 
     private final JdbcTemplate jdbc;
