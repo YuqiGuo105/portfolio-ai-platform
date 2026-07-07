@@ -15,14 +15,6 @@ spring:
   data:
     redis:
       url: ${REDIS_URL:redis://localhost:6379}
-  # DataSource is opt-in: excluded by default so the service starts without DB.
-  # Enable by removing the exclusion and setting SPRING_DATASOURCE_URL,
-  # SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD + FLYWAY_ENABLED=true.
-  autoconfigure:
-    exclude:
-      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
-      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
-      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
 
 agent:
   model:
@@ -110,14 +102,16 @@ spring.datasource:
     maximum-pool-size: 5
 
 spring.flyway:
-  enabled: ${FLYWAY_ENABLED:false}
+  enabled: true
   locations: classpath:db/migration
   table: agent_flyway_history
+  baseline-on-migrate: true
+  baseline-version: 0
 
 # ─── OpenSearch (outbox → log index sync) ────────────────────────────────
 observability:
   opensearch:
-    url: ${OPENSEARCH_URL:https://os-79250b0-yguo105-17e7.l.aivencloud.com:22949}
+    url: ${OPENSEARCH_URL:https://os-b4cbaea-yuqi-791c.a.aivencloud.com:27099}
     username: ${OPENSEARCH_USERNAME:avnadmin}
     password: ${OPENSEARCH_PASSWORD:}
   outbox:
