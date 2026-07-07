@@ -8,6 +8,8 @@ WORKDIR /workspace
 COPY pom.xml                                  ./pom.xml
 COPY portfolio-agent-service/pom.xml          ./portfolio-agent-service/pom.xml
 COPY portfolio-mcp-gateway/pom.xml            ./portfolio-mcp-gateway/pom.xml
+COPY shared-contracts/pom.xml                 ./shared-contracts/pom.xml
+COPY knowledge-service/pom.xml                ./knowledge-service/pom.xml
 
 RUN mvn -B -q -DskipTests dependency:go-offline -pl portfolio-mcp-gateway -am
 
