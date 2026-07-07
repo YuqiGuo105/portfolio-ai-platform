@@ -12,6 +12,14 @@ spring:
     web-application-type: servlet
   jackson:
     default-property-inclusion: non_null
+  # DataSource is opt-in: excluded by default so the service starts without DB.
+  # Enable by removing the exclusion and setting SPRING_DATASOURCE_URL,
+  # SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD + FLYWAY_ENABLED=true.
+  autoconfigure:
+    exclude:
+      - org.springframework.boot.autoconfigure.jdbc.DataSourceAutoConfiguration
+      - org.springframework.boot.autoconfigure.orm.jpa.HibernateJpaAutoConfiguration
+      - org.springframework.boot.autoconfigure.flyway.FlywayAutoConfiguration
 
 agent:
   model:
