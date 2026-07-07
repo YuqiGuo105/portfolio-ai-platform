@@ -91,7 +91,7 @@ spring.datasource:
     maximum-pool-size: 5
 
 spring.flyway:
-  enabled: true
+  enabled: ${FLYWAY_ENABLED:false}
   locations: classpath:db/migration
   table: agent_flyway_history
 
