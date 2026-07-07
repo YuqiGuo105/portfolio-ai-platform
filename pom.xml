@@ -38,18 +38,26 @@
     </description>
 
     <modules>
+        <module>shared-contracts</module>
         <module>portfolio-agent-service</module>
         <module>portfolio-mcp-gateway</module>
+        <module>knowledge-service</module>
     </modules>
 
     <properties>
         <java.version>21</java.version>
         <lombok.version>1.18.38</lombok.version>
         <springdoc.version>2.6.0</springdoc.version>
+        <opensearch-client.version>2.13.0</opensearch-client.version>
     </properties>
 
     <dependencyManagement>
         <dependencies>
+            <dependency>
+                <groupId>site.yuqi</groupId>
+                <artifactId>shared-contracts</artifactId>
+                <version>${project.version}</version>
+            </dependency>
             <dependency>
                 <groupId>org.springdoc</groupId>
                 <artifactId>springdoc-openapi-starter-webmvc-ui</artifactId>
@@ -59,6 +67,16 @@
                 <groupId>org.projectlombok</groupId>
                 <artifactId>lombok</artifactId>
                 <version>${lombok.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensearch.client</groupId>
+                <artifactId>opensearch-rest-client</artifactId>
+                <version>${opensearch-client.version}</version>
+            </dependency>
+            <dependency>
+                <groupId>org.opensearch.client</groupId>
+                <artifactId>opensearch-java</artifactId>
+                <version>${opensearch-client.version}</version>
             </dependency>
         </dependencies>
     </dependencyManagement>

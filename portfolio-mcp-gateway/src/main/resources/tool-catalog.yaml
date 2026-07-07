@@ -91,6 +91,59 @@ tools:
       method: GET
       path: /api/admin/outbox
 
+  # ── Analytics: privacy-safe aggregate reads ────────────────────────────
+  - name: analytics.get_visitor_summary
+    mode: READ
+    description: Get aggregate visitor metrics for a confirmed time range. Never returns individual visitor details.
+    requiredRole: VIEWER
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: true
+    note: |
+      Privacy invariants:
+        * startDate/endDate must cover at least 7 days.
+        * caller must set _confirmedTimeRange=true after user approval.
+        * gateway strips raw visitor identifiers and suppresses tiny buckets.
+    parameters:
+      - { name: startDate, type: string, required: true, description: "ISO date, inclusive." }
+      - { name: endDate,   type: string, required: true, description: "ISO date, inclusive. Minimum range is 7 days." }
+      - { name: granularity, type: string, required: false, description: "week | month." }
+    endpoint:
+      target: analytics
+      method: GET
+      path: /api/admin/analytics/visitors/summary
+
+  - name: analytics.get_top_pages
+    mode: READ
+    description: Get top pages by aggregate visits for a confirmed time range.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: startDate, type: string, required: true, description: "ISO date, inclusive." }
+      - { name: endDate,   type: string, required: true, description: "ISO date, inclusive. Minimum range is 7 days." }
+      - { name: limit,     type: integer, required: false, description: "Default 10, max 25." }
+    endpoint:
+      target: analytics
+      method: GET
+      path: /api/admin/analytics/pages/top
+
+  - name: analytics.get_referrer_summary
+    mode: READ
+    description: Get aggregate traffic source/referrer summary for a confirmed time range.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: startDate, type: string, required: true, description: "ISO date, inclusive." }
+      - { name: endDate,   type: string, required: true, description: "ISO date, inclusive. Minimum range is 7 days." }
+    endpoint:
+      target: analytics
+      method: GET
+      path: /api/admin/analytics/referrers/summary
+
   # ── Admin: write ────────────────────────────────────────────────────────
   - name: admin.create_content_draft
     mode: WRITE
@@ -324,16 +377,37 @@ tools:
       method: PATCH
       path: /api/admin/subscribers/{subscriberId}/preferences
 
+  - name: notification.request_unsubscribe_verification
+    mode: WRITE
+    description: Send an email verification code before hard-unsubscribing a subscriber.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    note: |
+      This is the first leg of the unsubscribe workflow. It sends a short-lived
+      verification code to the subscriber's email address. The destructive
+      unsubscribe tool must receive verificationId + verificationCode.
+    parameters:
+      - { name: subscriberId, type: string, required: true }
+      - { name: reason,       type: string, required: false }
+    endpoint:
+      target: notification
+      method: POST
+      path: /api/admin/subscribers/{subscriberId}/unsubscribe-verification
+
   - name: notification.unsubscribe_subscriber
     mode: WRITE
-    description: Hard-unsubscribe a subscriber. Requires email-OTP confirmation downstream.
+    description: Hard-unsubscribe a subscriber after email-OTP verification. Human handoff/review is required if verification cannot be completed.
     requiredRole: ADMIN
     riskLevel: CRITICAL
     dryRunSupported: false
     confirmRequired: true
     confirmationMethod: email_otp
     parameters:
-      - { name: subscriberId, type: string, required: true }
+      - { name: subscriberId,      type: string, required: true }
+      - { name: verificationId,   type: string, required: true }
+      - { name: verificationCode, type: string, required: true, description: "6-digit code from the subscriber email verification flow." }
     endpoint:
       target: notification
       method: DELETE

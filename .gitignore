@@ -33,3 +33,6 @@ Thumbs.db
 # Logs
 *.log
 logs/
+
+# Internal design docs (local only)
+docs/ai-customer-agent-opensearch-plan.zh.md

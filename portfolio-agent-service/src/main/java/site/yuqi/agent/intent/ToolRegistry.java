@@ -65,6 +65,35 @@ public class ToolRegistry {
                 Set.of("status", "limit")
         ));
 
+        // ── Analytics: privacy-safe aggregate reads ────────────────────
+        register(new ToolDefinition(
+                "analytics.get_visitor_summary",
+                IntentType.ANALYTICS_GET_VISITOR_SUMMARY,
+                "Get aggregate visitor metrics only. Never returns specific visitor identity, IP, email, session, or raw events.",
+                RiskLevel.READ_ONLY,
+                true,
+                Set.of(),
+                Set.of("startDate", "endDate", "granularity", "timeRangePreset")
+        ));
+        register(new ToolDefinition(
+                "analytics.get_top_pages",
+                IntentType.ANALYTICS_GET_TOP_PAGES,
+                "Get top pages by aggregate visits only. Minimum confirmed analytics window is 7 days.",
+                RiskLevel.READ_ONLY,
+                true,
+                Set.of(),
+                Set.of("startDate", "endDate", "limit", "timeRangePreset")
+        ));
+        register(new ToolDefinition(
+                "analytics.get_referrer_summary",
+                IntentType.ANALYTICS_GET_REFERRER_SUMMARY,
+                "Get aggregate traffic source and referrer summary only. Never returns individual visitor details.",
+                RiskLevel.READ_ONLY,
+                true,
+                Set.of(),
+                Set.of("startDate", "endDate", "timeRangePreset")
+        ));
+
         // ── Admin: write ────────────────────────────────────────────────
         register(new ToolDefinition(
                 "admin.create_content_draft",
@@ -198,12 +227,21 @@ public class ToolRegistry {
                 Set.of("categories", "frequency")
         ));
         register(new ToolDefinition(
-                "notification.unsubscribe_subscriber",
-                IntentType.NOTIFICATION_UNSUBSCRIBE,
-                "Hard-unsubscribe a subscriber. Requires email-OTP confirmation downstream.",
-                RiskLevel.DESTRUCTIVE,
+                "notification.request_unsubscribe_verification",
+                IntentType.NOTIFICATION_REQUEST_UNSUBSCRIBE_VERIFICATION,
+                "Send an email verification code before hard-unsubscribing a subscriber.",
+                RiskLevel.RISKY_WRITE,
                 true,
                 Set.of("subscriberId"),
+                Set.of("reason")
+        ));
+        register(new ToolDefinition(
+                "notification.unsubscribe_subscriber",
+                IntentType.NOTIFICATION_UNSUBSCRIBE,
+                "Hard-unsubscribe a subscriber after email-OTP verification. Requires verificationId and 6-digit verificationCode.",
+                RiskLevel.DESTRUCTIVE,
+                true,
+                Set.of("subscriberId", "verificationId", "verificationCode"),
                 Set.of()
         ));
 

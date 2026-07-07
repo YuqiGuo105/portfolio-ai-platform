@@ -10,6 +10,9 @@ import org.springframework.stereotype.Component;
 import site.yuqi.agent.client.McpGatewayClient;
 import site.yuqi.agent.model.ToolInvocation;
 
+import java.time.LocalDate;
+import java.time.ZoneOffset;
+import java.time.temporal.ChronoUnit;
 import java.util.HashMap;
 import java.util.List;
 import java.util.Map;
@@ -63,10 +66,64 @@ public class EntityResolver {
             return resolveFailedJob(args);
         }
 
+        if (isAnalyticsIntent(tool.intent())) {
+            normalizeAnalyticsTimeRange(args);
+        }
+
         return EntityResolutionResult.builder()
                 .outcome(Outcome.READY)
                 .resolvedArguments(args)
                 .build();
+    }
+
+    private boolean isAnalyticsIntent(IntentType intent) {
+        return intent == IntentType.ANALYTICS_GET_VISITOR_SUMMARY
+                || intent == IntentType.ANALYTICS_GET_TOP_PAGES
+                || intent == IntentType.ANALYTICS_GET_REFERRER_SUMMARY;
+    }
+
+    private void normalizeAnalyticsTimeRange(Map<String, Object> args) {
+        LocalDate today = LocalDate.now(ZoneOffset.UTC);
+        LocalDate end = parseDate(args.get("endDate"));
+        LocalDate start = parseDate(args.get("startDate"));
+
+        if (start == null && end == null) {
+            end = today;
+            start = end.minusDays(6);
+            args.put("_timeRangeDefaulted", true);
+        } else if (start == null) {
+            start = end.minusDays(6);
+            args.put("_timeRangeDefaulted", true);
+        } else if (end == null) {
+            end = today;
+            args.put("_timeRangeDefaulted", true);
+        }
+
+        if (end.isBefore(start)) {
+            LocalDate tmp = start;
+            start = end;
+            end = tmp;
+            args.put("_timeRangeReordered", true);
+        }
+
+        long days = ChronoUnit.DAYS.between(start, end) + 1;
+        if (days < 7) {
+            start = end.minusDays(6);
+            args.put("_privacyWindowAdjusted", true);
+        }
+
+        args.put("startDate", start.toString());
+        args.put("endDate", end.toString());
+        args.remove("timeRangePreset");
+    }
+
+    private LocalDate parseDate(Object value) {
+        if (!(value instanceof String s) || s.isBlank()) return null;
+        try {
+            return LocalDate.parse(s);
+        } catch (Exception ignored) {
+            return null;
+        }
     }
 
     private EntityResolutionResult resolveBySearch(Map<String, Object> args) {

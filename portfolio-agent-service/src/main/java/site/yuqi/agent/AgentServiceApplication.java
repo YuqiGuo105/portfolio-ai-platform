@@ -2,6 +2,7 @@ package site.yuqi.agent;
 
 import org.springframework.boot.SpringApplication;
 import org.springframework.boot.autoconfigure.SpringBootApplication;
+import org.springframework.scheduling.annotation.EnableScheduling;
 
 /**
  * Portfolio Agent Service.
@@ -13,6 +14,7 @@ import org.springframework.boot.autoconfigure.SpringBootApplication;
  * ({@code ChatController}) or returns JSON via {@code IntentController}.
  */
 @SpringBootApplication
+@EnableScheduling
 public class AgentServiceApplication {
 
     public static void main(String[] args) {

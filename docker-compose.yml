@@ -1,6 +1,5 @@
-# Local dev compose. Both services run as stateless Spring Boot apps.
-# Supabase / OpenAI / Gemini credentials are read from a sibling `.env` file
-# (NOT committed — see README.md for the full env list).
+# Local dev compose. All services run as stateless Spring Boot apps.
+# Credentials are read from a sibling `.env` file (NOT committed).
 
 services:
   portfolio-agent-service:
@@ -19,9 +18,37 @@ services:
       - OPENAI_API_KEY=${OPENAI_API_KEY:-}
       - GEMINI_API_KEY=${GEMINI_API_KEY:-}
       - AGENT_MODEL_DEFAULT=${AGENT_MODEL_DEFAULT:-openai}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,https://yuqi.site,https://www.yuqi.site}
+      - AGENT_AUTH_ALLOW_ANONYMOUS=true
+      # Aiven PostgreSQL
+      - AIVEN_PG_URL=${AIVEN_PG_URL:-jdbc:postgresql://pg-bba5beb-yguo105-17e7.d.aivencloud.com:22949/defaultdb?sslmode=require}
+      - AIVEN_PG_USERNAME=${AIVEN_PG_USERNAME:-avnadmin}
+      - AIVEN_PG_PASSWORD=${AIVEN_PG_PASSWORD:-}
+      # Aiven OpenSearch (observability)
+      - OPENSEARCH_URL=${OPENSEARCH_URL:-https://os-79250b0-yguo105-17e7.l.aivencloud.com:22949}
+      - OPENSEARCH_USERNAME=${OPENSEARCH_USERNAME:-avnadmin}
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD:-}
+      # Knowledge service
+      - KNOWLEDGE_SERVICE_BASE_URL=http://knowledge-service:8092
     depends_on:
       - portfolio-mcp-gateway
+      - knowledge-service
+    restart: unless-stopped
+
+  knowledge-service:
+    build:
+      context: .
+      dockerfile: knowledge-service/Dockerfile
+    image: knowledge-service:local
+    container_name: knowledge-service
+    ports:
+      - "8092:8092"
+    environment:
+      - PORT=8092
+      - GEMINI_API_KEY=${GEMINI_API_KEY:-}
+      - OPENSEARCH_URL=${OPENSEARCH_URL:-https://os-79250b0-yguo105-17e7.l.aivencloud.com:22949}
+      - OPENSEARCH_USERNAME=${OPENSEARCH_USERNAME:-avnadmin}
+      - OPENSEARCH_PASSWORD=${OPENSEARCH_PASSWORD:-}
     restart: unless-stopped
 
   portfolio-mcp-gateway:
@@ -36,18 +63,14 @@ services:
       - SPRING_PROFILES_ACTIVE=local
       - PORT=8091
       - MCP_GATEWAY_INTERNAL_TOKEN=${MCP_GATEWAY_INTERNAL_TOKEN:-dev-internal-token}
-      # Domain service base URLs — point local dev at hosted services unless
-      # you also have them running locally.
       - PORTFOLIO_BASE_URL=${PORTFOLIO_BASE_URL:-https://www.yuqi.site}
       - ADMIN_SERVICE_BASE_URL=${ADMIN_SERVICE_BASE_URL:-https://portfolio-admin-service-y45c2mnbja-uc.a.run.app}
       - NOTIFICATION_SERVICE_BASE_URL=${NOTIFICATION_SERVICE_BASE_URL:-http://localhost:8082}
       - NOTIFICATION_INTERNAL_TOKEN=${NOTIFICATION_INTERNAL_TOKEN:-}
-      # Supabase: wired in but Flyway disabled; child services don't manage
-      # any schema in Sprint 1.
       - SPRING_DATASOURCE_URL=${SPRING_DATASOURCE_URL:-}
       - SPRING_DATASOURCE_USERNAME=${SPRING_DATASOURCE_USERNAME:-}
       - SPRING_DATASOURCE_PASSWORD=${SPRING_DATASOURCE_PASSWORD:-}
       - SUPABASE_JWT_SECRET=${SUPABASE_JWT_SECRET:-}
       - ADMIN_ALLOWED_EMAILS=${ADMIN_ALLOWED_EMAILS:-}
-      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000}
+      - ALLOWED_ORIGINS=${ALLOWED_ORIGINS:-http://localhost:3000,https://yuqi.site,https://www.yuqi.site}
     restart: unless-stopped

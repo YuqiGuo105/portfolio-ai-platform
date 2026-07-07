@@ -34,6 +34,9 @@ mcp:
     enabled: true
   idempotency:
     ttl-seconds: ${MCP_IDEMPOTENCY_TTL_S:3600}
+  analytics:
+    min-window-days: ${ANALYTICS_MIN_WINDOW_DAYS:7}
+    min-bucket-count: ${ANALYTICS_MIN_BUCKET_COUNT:5}
 
 domain:
   portfolio:
@@ -46,6 +49,10 @@ domain:
     base-url: ${NOTIFICATION_SERVICE_BASE_URL:http://localhost:8082}
     internal-token: ${NOTIFICATION_INTERNAL_TOKEN:}
     timeout-ms: ${NOTIFICATION_TIMEOUT_MS:15000}
+  analytics:
+    base-url: ${ANALYTICS_SERVICE_BASE_URL:http://localhost:8083}
+    internal-token: ${ANALYTICS_INTERNAL_TOKEN:}
+    timeout-ms: ${ANALYTICS_TIMEOUT_MS:15000}
 
 security:
   supabase-jwt-secret: ${SUPABASE_JWT_SECRET:}

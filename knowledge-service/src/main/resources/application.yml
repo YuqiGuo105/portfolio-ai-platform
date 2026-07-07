@@ -1,0 +1,40 @@
+server:
+  port: ${PORT:8092}
+  error:
+    include-message: always
+    include-stacktrace: always
+
+spring:
+  application:
+    name: knowledge-service
+
+knowledge:
+  opensearch:
+    url: ${OPENSEARCH_URL:https://os-79250b0-yguo105-17e7.l.aivencloud.com:22949}
+    username: ${OPENSEARCH_USERNAME:avnadmin}
+    password: ${OPENSEARCH_PASSWORD:}
+    knowledge-index: ${OPENSEARCH_INDEX_KNOWLEDGE:knowledge-chunks-v1}
+    embedding-dimension: ${EMBEDDING_DIMENSION:768}
+    connect-timeout-ms: 5000
+    socket-timeout-ms: 30000
+
+  embedding:
+    provider: gemini
+    model: ${EMBEDDING_MODEL:gemini-embedding-001}
+    api-key: ${GEMINI_API_KEY:}
+    dimension: ${EMBEDDING_DIMENSION:768}
+
+  search:
+    default-top-k: 8
+    bm25-weight: 0.4
+    vector-weight: 0.6
+    rrf-k: 60
+
+management:
+  endpoints:
+    web:
+      exposure:
+        include: health,info,prometheus
+  endpoint:
+    health:
+      show-details: when_authorized

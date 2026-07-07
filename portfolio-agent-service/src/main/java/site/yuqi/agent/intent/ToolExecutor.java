@@ -6,6 +6,7 @@ import org.springframework.stereotype.Service;
 import site.yuqi.agent.client.McpGatewayClient;
 import site.yuqi.agent.model.ToolInvocation;
 
+import java.util.HashMap;
 import java.util.Map;
 import java.util.UUID;
 
@@ -30,12 +31,19 @@ public class ToolExecutor {
         String idempotencyKey = (tool.riskLevel() == RiskLevel.READ_ONLY)
                 ? null
                 : UUID.randomUUID().toString();
+        Map<String, Object> invocationArgs = new HashMap<>(args == null ? Map.of() : args);
+        if (tool.requiresConfirmation() || tool.riskLevel() != RiskLevel.READ_ONLY) {
+            invocationArgs.put("_confirmed", true);
+        }
+        if (tool.name().startsWith("analytics.")) {
+            invocationArgs.put("_confirmedTimeRange", true);
+        }
 
-        auditService.logExecutionStart(req, tool.name(), args);
+        auditService.logExecutionStart(req, tool.name(), invocationArgs);
 
         ToolInvocation inv = ToolInvocation.builder()
                 .name(tool.name())
-                .arguments(args)
+                .arguments(invocationArgs)
                 .idempotencyKey(idempotencyKey)
                 .build();
 

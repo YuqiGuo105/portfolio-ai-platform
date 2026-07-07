@@ -14,6 +14,8 @@ import org.springframework.web.reactive.function.client.WebClient;
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.time.LocalDate;
+import java.time.ZoneOffset;
 import java.util.ArrayList;
 import java.util.HashMap;
 import java.util.Iterator;
@@ -223,6 +225,8 @@ public class GeminiIntentClassifier implements IntentClassifier {
         return """
             You are an intent classifier for a Portfolio MCP server.
 
+            Current UTC date: %s.
+
             The user may write in any language (English, Chinese, Spanish, Japanese, ...).
 
             Your job:
@@ -238,6 +242,9 @@ public class GeminiIntentClassifier implements IntentClassifier {
             8. If the request is unrelated to the available tools, return GENERAL_CHAT (small-talk / open question) or UNKNOWN (out of scope).
             9. Keep the original language in the language field (ISO 639-1: en, zh, es, ja, ...).
             10. normalizedQuery can be an English paraphrase suitable for internal search.
+            11. Analytics tools are aggregate-only. Never use them to answer "who visited", emails, IPs, session IDs, exact timestamps, or individual visitor tracking.
+            12. For vague analytics ranges like "recent visitors", use the last 7 days ending on Current UTC date and set requiresConfirmation=true.
+            13. For analytics ranges shorter than 7 days, expand to a 7-day window ending on the requested end date and set requiresConfirmation=true.
 
             Allowed tools:
             %s
@@ -266,7 +273,7 @@ public class GeminiIntentClassifier implements IntentClassifier {
               "missingEntities": [],
               "clarificationQuestion": "<string or null>"
             }
-            """.formatted(toolsBlock);
+            """.formatted(LocalDate.now(ZoneOffset.UTC), toolsBlock);
     }
 
     private String buildUserPrompt(IntentRequest request) {

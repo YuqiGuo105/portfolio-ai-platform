@@ -40,6 +40,10 @@ public class PolicyGuard {
             Map.entry("admin.reindex_search",              Role.PUBLISHER),
             Map.entry("admin.retry_indexing_job",          Role.ADMIN),
 
+            Map.entry("analytics.get_visitor_summary",     Role.VIEWER),
+            Map.entry("analytics.get_top_pages",           Role.VIEWER),
+            Map.entry("analytics.get_referrer_summary",    Role.VIEWER),
+
             Map.entry("notification.get_delivery_stats",   Role.VIEWER),
             Map.entry("notification.list_notifications",   Role.VIEWER),
             Map.entry("notification.list_failed_deliveries", Role.VIEWER),
@@ -48,6 +52,7 @@ public class PolicyGuard {
             Map.entry("notification.retry_failed_delivery",Role.ADMIN),
             Map.entry("notification.send_test_notification", Role.ADMIN),
             Map.entry("notification.update_subscription",  Role.ADMIN),
+            Map.entry("notification.request_unsubscribe_verification", Role.ADMIN),
             Map.entry("notification.unsubscribe_subscriber", Role.ADMIN)
     );
 
@@ -111,8 +116,14 @@ public class PolicyGuard {
             case ADMIN_REINDEX_SEARCH -> "About to reindex " + args.get("sourceType") + "/" + args.get("sourceId")
                     + " into OpenSearch. Confirm?";
             case ADMIN_RETRY_INDEXING_JOB -> "Retry indexing job " + args.get("jobId") + "?";
+            case ANALYTICS_GET_VISITOR_SUMMARY, ANALYTICS_GET_TOP_PAGES, ANALYTICS_GET_REFERRER_SUMMARY ->
+                    "Analyze aggregate analytics from " + args.get("startDate") + " to " + args.get("endDate")
+                            + "? For privacy, I will only return aggregate metrics and suppress small buckets.";
+            case NOTIFICATION_REQUEST_UNSUBSCRIBE_VERIFICATION ->
+                    "Send an email verification code before unsubscribing subscriber "
+                            + args.get("subscriberId") + "?";
             case NOTIFICATION_UNSUBSCRIBE -> "Hard-unsubscribe subscriber " + args.get("subscriberId")
-                    + "? Downstream OTP confirmation is required.";
+                    + " using the email verification code? This is destructive; if verification fails, hand off to a human.";
             default -> "Run " + tool.name() + " with arguments " + args + "?";
         };
     }

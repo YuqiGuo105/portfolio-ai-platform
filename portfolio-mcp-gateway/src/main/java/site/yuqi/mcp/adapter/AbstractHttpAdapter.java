@@ -60,7 +60,7 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
         }
         Map<String, Object> mutable = new HashMap<>(args);
         // Strip gateway-internal control flags so they aren't forwarded.
-        mutable.remove("_confirmed");
+        mutable.keySet().removeIf(k -> k != null && k.startsWith("_"));
 
         String path = substitutePathVars(tool.getEndpoint().getPath(), mutable);
         HttpMethod method = HttpMethod.valueOf(tool.getEndpoint().getMethod().toUpperCase());

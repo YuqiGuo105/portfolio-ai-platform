@@ -21,6 +21,7 @@ import site.yuqi.mcp.idempotency.IdempotencyKeyService;
 import site.yuqi.mcp.model.StructuredErrorResponse;
 import site.yuqi.mcp.model.ToolDefinition;
 import site.yuqi.mcp.registry.ToolRegistry;
+import site.yuqi.mcp.security.AnalyticsPrivacyPolicy;
 import site.yuqi.mcp.security.RiskGateValidator;
 import site.yuqi.mcp.validation.ParameterValidator;
 
@@ -49,6 +50,7 @@ public class ToolController {
 
     private final ToolRegistry registry;
     private final ParameterValidator parameterValidator;
+    private final AnalyticsPrivacyPolicy analyticsPrivacyPolicy;
     private final RiskGateValidator riskGateValidator;
     private final IdempotencyKeyService idempotencyKeyService;
     private final AdapterResolver adapterResolver;
@@ -106,7 +108,16 @@ public class ToolController {
                             .withDetail("errors", pv.getErrors()));
         }
 
-        // 2. Risk gate (confirm + dryRun)
+        // 2. Privacy gate for aggregate analytics reads.
+        AnalyticsPrivacyPolicy.Outcome privacy = analyticsPrivacyPolicy.check(tool, args);
+        if (!privacy.allowed()) {
+            auditService.logInvocation(tool, actor, args, idempotencyKey,
+                    "rejected_privacy", null, 0L, privacy.reason());
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(StructuredErrorResponse.of("privacy_gate", privacy.reason(), tool.getName()));
+        }
+
+        // 3. Risk gate (confirm + dryRun)
         RiskGateValidator.Outcome risk = riskGateValidator.check(tool, args);
         if (!risk.allowed()) {
             auditService.logInvocation(tool, actor, args, idempotencyKey,
@@ -115,7 +126,7 @@ public class ToolController {
                     .body(StructuredErrorResponse.of("risk_gate", risk.reason(), tool.getName()));
         }
 
-        // 3. Idempotency (writes only)
+        // 4. Idempotency (writes only)
         if (tool.getMode() != null && tool.getMode().name().equals("WRITE")) {
             Optional<IdempotencyKeyService.CachedResult> cached = idempotencyKeyService.lookup(idempotencyKey);
             if (cached.isPresent()) {
@@ -125,7 +136,7 @@ public class ToolController {
             }
         }
 
-        // 4. Dispatch to adapter
+        // 5. Dispatch to adapter
         String target = tool.getEndpoint() == null ? null : tool.getEndpoint().getTarget();
         DomainServiceAdapter adapter = target == null ? null : adapterResolver.find(target).orElse(null);
         if (adapter == null) {

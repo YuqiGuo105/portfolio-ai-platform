@@ -82,6 +82,54 @@ management:
     tags:
       application: portfolio-agent-service
 
+# ─── Aiven PostgreSQL (conversation / run / step / outbox) ───────────────
+spring.datasource:
+  url: ${AIVEN_PG_URL:jdbc:postgresql://pg-bba5beb-yguo105-17e7.d.aivencloud.com:22949/defaultdb?sslmode=require}
+  username: ${AIVEN_PG_USERNAME:avnadmin}
+  password: ${AIVEN_PG_PASSWORD:}
+  hikari:
+    maximum-pool-size: 5
+
+spring.flyway:
+  enabled: true
+  locations: classpath:db/migration
+  table: agent_flyway_history
+
+# ─── OpenSearch (outbox → log index sync) ────────────────────────────────
+observability:
+  opensearch:
+    url: ${OPENSEARCH_URL:https://os-79250b0-yguo105-17e7.l.aivencloud.com:22949}
+    username: ${OPENSEARCH_USERNAME:avnadmin}
+    password: ${OPENSEARCH_PASSWORD:}
+  outbox:
+    poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:5000}
+    batch-size: ${OUTBOX_BATCH_SIZE:100}
+
+# ─── Knowledge Service ───────────────────────────────────────────────────
+knowledge:
+  base-url: ${KNOWLEDGE_SERVICE_BASE_URL:http://localhost:8092}
+  timeout-ms: ${KNOWLEDGE_TIMEOUT_MS:10000}
+
+# ─── Safety + Handoff ────────────────────────────────────────────────────
+safety:
+  enabled: ${SAFETY_ENABLED:true}
+  model: ${SAFETY_MODEL:gemini-2.5-flash}
+  # Confidence below this triggers handoff
+  handoff-confidence-threshold: ${HANDOFF_CONFIDENCE_THRESHOLD:0.4}
+  # Risk levels that force handoff (comma-separated)
+  handoff-risk-levels: ${HANDOFF_RISK_LEVELS:CRITICAL,HIGH}
+
+handoff:
+  enabled: ${HANDOFF_ENABLED:true}
+  # CRM integration endpoint (Zendesk/Salesforce/internal)
+  crm-webhook-url: ${CRM_WEBHOOK_URL:}
+  crm-api-key: ${CRM_API_KEY:}
+
+# ─── Answer Generation (Gemini Pro) ─────────────────────────────────────
+agent.generation:
+  model: ${GENERATION_MODEL:gemini-2.5-pro}
+  max-output-tokens: ${GENERATION_MAX_OUTPUT_TOKENS:4096}
+
 logging:
   level:
     site.yuqi.agent: INFO
