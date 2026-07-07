@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
+import site.yuqi.agent.conversation.ConversationKey;
 import site.yuqi.agent.generation.AgentPipelineService;
 import site.yuqi.agent.model.AgentStreamRequest;
 import site.yuqi.agent.web.AuthenticatedPrincipal;
@@ -54,6 +55,7 @@ public class AgentStreamController {
                 // Trust body — the proxy already authenticated the end user.
             }
         }
+        request.setConversationId(ConversationKey.derive(httpReq, request.getSessionId()));
 
         log.info("Agent stream request session={} question={}",
                 request.getSessionId(),

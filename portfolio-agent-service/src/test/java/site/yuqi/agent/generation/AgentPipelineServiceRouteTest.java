@@ -3,6 +3,9 @@ package site.yuqi.agent.generation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import site.yuqi.agent.client.KnowledgeClient;
+import site.yuqi.agent.conversation.ConversationContextLoader;
+import site.yuqi.agent.conversation.MemoryWriter;
+import site.yuqi.agent.conversation.PlannerContext;
 import site.yuqi.agent.handoff.HandoffService;
 import site.yuqi.agent.intent.IntentOrchestrator;
 import site.yuqi.agent.intent.IntentRequest;
@@ -36,6 +39,8 @@ class AgentPipelineServiceRouteTest {
     private GeminiGenerationService generationService;
     private LlmAgentRoutePlanner routePlanner;
     private IntentOrchestrator intentOrchestrator;
+    private ConversationContextLoader contextLoader;
+    private MemoryWriter memoryWriter;
     private AgentPipelineService service;
 
     @BeforeEach
@@ -45,6 +50,8 @@ class AgentPipelineServiceRouteTest {
         generationService = mock(GeminiGenerationService.class);
         routePlanner = mock(LlmAgentRoutePlanner.class);
         intentOrchestrator = mock(IntentOrchestrator.class);
+        contextLoader = mock(ConversationContextLoader.class);
+        memoryWriter = mock(MemoryWriter.class);
 
         service = new AgentPipelineService(
                 safetyService,
@@ -53,7 +60,9 @@ class AgentPipelineServiceRouteTest {
                 mock(HandoffService.class),
                 mock(EventRecorder.class),
                 routePlanner,
-                intentOrchestrator);
+                intentOrchestrator,
+                contextLoader,
+                memoryWriter);
 
         SafetyCheckResult pass = SafetyCheckResult.builder()
                 .verdict(SafetyVerdict.PASS)
@@ -61,6 +70,7 @@ class AgentPipelineServiceRouteTest {
                 .build();
         when(safetyService.checkInput(anyString(), any())).thenReturn(pass);
         when(safetyService.checkOutput(anyString(), any())).thenReturn(pass);
+        when(contextLoader.load(any(), any())).thenReturn(PlannerContext.empty(List.of()));
     }
 
     @Test

@@ -12,6 +12,9 @@ spring:
     web-application-type: servlet
   jackson:
     default-property-inclusion: non_null
+  data:
+    redis:
+      url: ${REDIS_URL:redis://localhost:6379}
   # DataSource is opt-in: excluded by default so the service starts without DB.
   # Enable by removing the exclusion and setting SPRING_DATASOURCE_URL,
   # SPRING_DATASOURCE_USERNAME, SPRING_DATASOURCE_PASSWORD + FLYWAY_ENABLED=true.
@@ -54,6 +57,14 @@ agent:
       clarify-threshold: ${MCP_INTENT_CONFIDENCE_CLARIFY_THRESHOLD:0.65}
     pending-action:
       ttl-seconds: ${MCP_PENDING_ACTION_TTL_S:300}
+
+  memory:
+    ttl-seconds: ${AGENT_MEMORY_TTL_SECONDS:1800}
+    max-turns-before-compact: ${AGENT_MEMORY_MAX_TURNS_BEFORE_COMPACT:10}
+    token-budget: ${AGENT_MEMORY_TOKEN_BUDGET:4000}
+    idle-compact-ms: ${AGENT_MEMORY_IDLE_COMPACT_MS:600000}
+    idle-scan-interval-ms: ${AGENT_MEMORY_IDLE_SCAN_INTERVAL_MS:60000}
+    tool-result-max-chars: ${AGENT_MEMORY_TOOL_RESULT_MAX_CHARS:3000}
 
   sse:
     keep-alive-interval-ms: ${AGENT_SSE_KEEPALIVE_MS:15000}

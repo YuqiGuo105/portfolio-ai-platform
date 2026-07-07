@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
+import site.yuqi.agent.conversation.ConversationKey;
 import site.yuqi.agent.model.ChatRequest;
 import site.yuqi.agent.model.ChatStreamEvent;
 import site.yuqi.agent.service.GraphWorkflowRunner;
@@ -63,6 +64,7 @@ public class ChatController {
                 // Trust body — the proxy already authenticated the end user.
             }
         }
+        request.setConversationId(ConversationKey.derive(httpReq, request.getSessionId()));
 
         SseEmitter emitter = new SseEmitter(sseTimeoutMs);
 

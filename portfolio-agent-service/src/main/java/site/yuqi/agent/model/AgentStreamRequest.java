@@ -22,6 +22,7 @@ public class AgentStreamRequest {
 
     private String question;
     private String sessionId;
+    private String conversationId;
     private String mode;          // "FAST" or "DEEPTHINKING"
     private String scopeMode;     // "OWNER_ONLY" or "GENERAL"
     private List<String> fileUrls;

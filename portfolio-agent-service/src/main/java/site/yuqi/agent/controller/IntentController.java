@@ -7,6 +7,9 @@ import org.springframework.web.bind.annotation.PostMapping;
 import org.springframework.web.bind.annotation.RequestBody;
 import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
+import site.yuqi.agent.conversation.ConversationContextLoader;
+import site.yuqi.agent.conversation.ConversationKey;
+import site.yuqi.agent.conversation.PlannerContext;
 import site.yuqi.agent.intent.IntentOrchestrator;
 import site.yuqi.agent.intent.IntentRequest;
 import site.yuqi.agent.intent.IntentResponse;
@@ -36,11 +39,12 @@ import site.yuqi.agent.web.AuthenticatedPrincipal;
 public class IntentController {
 
     private final IntentOrchestrator orchestrator;
+    private final ConversationContextLoader contextLoader;
 
     @PostMapping
     public IntentResponse classify(@Valid @RequestBody IntentRequest request,
                                    HttpServletRequest httpReq) {
-        return orchestrator.handle(applyPrincipal(request, httpReq));
+        return orchestrator.handle(applyPrincipalAndMemory(request, httpReq));
     }
 
     @PostMapping("/confirm")
@@ -52,7 +56,7 @@ public class IntentController {
         if (request.getConfirm() == null) {
             return IntentResponse.error("confirm (true|false) is required.");
         }
-        return orchestrator.handle(applyPrincipal(request, httpReq));
+        return orchestrator.handle(applyPrincipalAndMemory(request, httpReq));
     }
 
     /**
@@ -61,7 +65,7 @@ public class IntentController {
      * only INTERNAL_PROXY (the Portfolio Next.js proxy, itself authenticated
      * against Supabase) may set identity via the body.
      */
-    private static IntentRequest applyPrincipal(IntentRequest req, HttpServletRequest httpReq) {
+    private IntentRequest applyPrincipalAndMemory(IntentRequest req, HttpServletRequest httpReq) {
         AuthenticatedPrincipal p = AuthenticatedPrincipal.of(httpReq);
         switch (p.source()) {
             case USER_JWT -> {
@@ -78,6 +82,12 @@ public class IntentController {
                 // Trust body — the proxy already verified the end user.
             }
         }
+        req.setConversationId(ConversationKey.derive(httpReq, req.getSessionId()));
+        PlannerContext ctx = contextLoader.load(req.getConversationId(), req.getRecentMessages());
+        req.setRecentMessages(ctx.recentMessages());
+        req.setCompactSummary(ctx.compactSummary());
+        req.setStructuredState(ctx.structuredState());
+        req.setPendingActionContext(ctx.pendingAction());
         return req;
     }
 }

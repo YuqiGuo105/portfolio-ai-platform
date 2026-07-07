@@ -4,11 +4,16 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import site.yuqi.agent.conversation.ConversationContextLoader;
+import site.yuqi.agent.conversation.MemoryWriter;
+import site.yuqi.agent.conversation.PlannerContext;
 import site.yuqi.agent.intent.IntentOrchestrator;
 import site.yuqi.agent.intent.IntentRequest;
 import site.yuqi.agent.intent.IntentResponse;
 import site.yuqi.agent.model.ChatRequest;
 import site.yuqi.agent.model.ChatStreamEvent;
+
+import java.util.List;
 
 /**
  * Bridges the streaming chat surface ({@link site.yuqi.agent.controller.ChatController})
@@ -25,6 +30,8 @@ import site.yuqi.agent.model.ChatStreamEvent;
 public class GraphWorkflowRunner {
 
     private final IntentOrchestrator orchestrator;
+    private final ConversationContextLoader contextLoader;
+    private final MemoryWriter memoryWriter;
 
     public Flux<ChatStreamEvent> run(ChatRequest request) {
         return Flux.create(sink -> {
@@ -37,17 +44,32 @@ public class GraphWorkflowRunner {
                 return;
             }
 
+            PlannerContext plannerContext = contextLoader.load(
+                    request.getConversationId(),
+                    List.of());
+
             IntentRequest ir = IntentRequest.builder()
                     .sessionId(request.getSessionId())
+                    .conversationId(request.getConversationId())
                     .userEmail(request.getUserEmail())
                     .userRoles(request.getUserRoles())
                     .utterance(utterance)
                     .pageContext(request.getPageContext())
+                    .recentMessages(plannerContext.recentMessages())
+                    .compactSummary(plannerContext.compactSummary())
+                    .structuredState(plannerContext.structuredState())
+                    .pendingActionContext(plannerContext.pendingAction())
                     .build();
 
             try {
                 IntentResponse resp = orchestrator.handle(ir);
                 sink.next(ChatStreamEvent.builder().type(mapToEvent(resp.getType())).payload(resp).build());
+                memoryWriter.writeTurnPair(
+                        request.getConversationId(),
+                        utterance,
+                        memoryWriter.responseText(resp),
+                        resp.getType(),
+                        resp);
                 sink.next(ChatStreamEvent.builder().type("done").build());
                 sink.complete();
             } catch (Exception e) {

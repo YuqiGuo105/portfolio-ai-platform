@@ -26,6 +26,9 @@ public class IntentRequest {
     @NotBlank
     private String sessionId;
 
+    /** Server-derived Redis memory key. Do not trust or reuse raw sessionId for memory. */
+    private String conversationId;
+
     /** Caller identity. Null = anonymous (public read-only tools only). */
     private String userId;
 
@@ -67,4 +70,13 @@ public class IntentRequest {
      * Nullable and ignored when null — fully backward-compatible.
      */
     private List<Map<String, String>> recentMessages;
+
+    /** Redis compact summary, structured as userGoals/keyFacts/entities/toolOutcomes/openQuestions. */
+    private Map<String, Object> compactSummary;
+
+    /** Redis extracted state used by the planner, for example resolved entities and open questions. */
+    private Map<String, Object> structuredState;
+
+    /** Redis pending action context, if a previous turn is waiting for confirmation. */
+    private Map<String, Object> pendingActionContext;
 }

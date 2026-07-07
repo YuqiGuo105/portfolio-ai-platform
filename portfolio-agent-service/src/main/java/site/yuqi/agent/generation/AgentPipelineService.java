@@ -7,6 +7,9 @@ import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 import reactor.core.scheduler.Schedulers;
 import site.yuqi.agent.client.KnowledgeClient;
+import site.yuqi.agent.conversation.ConversationContextLoader;
+import site.yuqi.agent.conversation.MemoryWriter;
+import site.yuqi.agent.conversation.PlannerContext;
 import site.yuqi.agent.handoff.HandoffReason;
 import site.yuqi.agent.handoff.HandoffService;
 import site.yuqi.agent.intent.IntentClassificationException;
@@ -44,6 +47,8 @@ public class AgentPipelineService {
     private final EventRecorder eventRecorder;
     private final LlmAgentRoutePlanner routePlanner;
     private final IntentOrchestrator intentOrchestrator;
+    private final ConversationContextLoader contextLoader;
+    private final MemoryWriter memoryWriter;
 
     private static final String SYSTEM_PROMPT = """
             You are Yuqi's AI assistant on his portfolio website (yuqi.site).
@@ -82,6 +87,9 @@ public class AgentPipelineService {
 
             UUID runId = UUID.randomUUID();
             long pipelineStart = System.currentTimeMillis();
+            PlannerContext plannerContext = contextLoader.load(
+                    request.getConversationId(),
+                    List.of());
 
             try {
                 // Emit: agent_run.started
@@ -118,18 +126,20 @@ public class AgentPipelineService {
                     // Emit: agent_run.completed
                     emitRunCompleted(runId, pipelineStart, "blocked");
 
-                    sink.next(answerFinalEvent("I'm sorry, I can't help with that request."));
+                    String answer = "I'm sorry, I can't help with that request.";
+                    memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "BLOCKED", (Map<String, Object>) null);
+                    sink.next(answerFinalEvent(answer));
                     sink.next(doneEvent());
                     sink.complete();
                     return;
                 }
 
-                IntentRequest intentRequest = buildIntentRequest(request, question, sessionId);
+                IntentRequest intentRequest = buildIntentRequest(request, question, sessionId, plannerContext);
 
                 if (request.getPendingActionId() != null && !request.getPendingActionId().isBlank()) {
                     sink.next(stageEvent("tool_execution", "Completing confirmed action..."));
                     IntentResponse response = intentOrchestrator.handle(intentRequest);
-                    handleToolResponse(sink, request, response, runId, pipelineStart);
+                    handleToolResponse(sink, request, response, runId, pipelineStart, question);
                     return;
                 }
 
@@ -155,19 +165,21 @@ public class AgentPipelineService {
                     case MCP_TOOL -> {
                         IntentResponse response = intentOrchestrator.handlePreclassified(
                                 intentRequest, routeDecision.intent());
-                        handleToolResponse(sink, request, response, runId, pipelineStart);
+                        handleToolResponse(sink, request, response, runId, pipelineStart, question);
                         return;
                     }
                     case CLARIFY -> {
                         emitRunCompleted(runId, pipelineStart, "clarify");
-                        sink.next(answerFinalEvent(nonBlank(routeDecision.message(),
-                                "Could you clarify what you need?")));
+                        String answer = nonBlank(routeDecision.message(), "Could you clarify what you need?");
+                        memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "CLARIFY", (Map<String, Object>) null);
+                        sink.next(answerFinalEvent(answer));
                         sink.next(doneEvent());
                         sink.complete();
                         return;
                     }
                     case HANDOFF -> {
-                        requestHandoffConfirmation(sink, routeDecision);
+                        String answer = requestHandoffConfirmation(sink, routeDecision);
+                        memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "HANDOFF", (Map<String, Object>) null);
                         emitRunCompleted(runId, pipelineStart, "handoff_pending");
                         sink.next(doneEvent());
                         sink.complete();
@@ -175,8 +187,10 @@ public class AgentPipelineService {
                     }
                     case GENERAL_CHAT -> {
                         emitRunCompleted(runId, pipelineStart, "general_chat");
-                        sink.next(answerFinalEvent(nonBlank(routeDecision.message(),
-                                "I can help with Yuqi's portfolio, site analytics, content operations, and support workflows.")));
+                        String answer = nonBlank(routeDecision.message(),
+                                "I can help with Yuqi's portfolio, site analytics, content operations, and support workflows.");
+                        memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "GENERAL_CHAT", (Map<String, Object>) null);
+                        sink.next(answerFinalEvent(answer));
                         sink.next(doneEvent());
                         sink.complete();
                         return;
@@ -228,7 +242,7 @@ public class AgentPipelineService {
 
                 // Stage 3: Build prompt with context + conversation history
                 sink.next(stageEvent("generating", "Generating answer..."));
-                String userPrompt = buildUserPrompt(question, contextChunks, request);
+                String userPrompt = buildUserPrompt(question, contextChunks, request, plannerContext);
 
                 // Stage 4: Stream answer tokens
                 long generationStart = System.currentTimeMillis();
@@ -273,7 +287,10 @@ public class AgentPipelineService {
                                         .build());
 
                                 emitRunCompleted(runId, pipelineStart, "blocked");
-                                sink.next(answerFinalEvent("I apologize, but I cannot provide that response."));
+                                String answer = "I apologize, but I cannot provide that response.";
+                                memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
+                                        "BLOCKED", (Map<String, Object>) null);
+                                sink.next(answerFinalEvent(answer));
                             } else {
                                 // Emit: answer.generated
                                 eventRecorder.record(PlatformEvent.now(EventTypes.ANSWER_GENERATED)
@@ -291,6 +308,8 @@ public class AgentPipelineService {
                                         .build());
 
                                 emitRunCompleted(runId, pipelineStart, "completed");
+                                memoryWriter.writeTurnPair(request.getConversationId(), question, fullAnswer,
+                                        "KNOWLEDGE_QA", (Map<String, Object>) null);
                                 sink.next(answerFinalEvent(fullAnswer));
                             }
                             sink.next(doneEvent());
@@ -302,10 +321,12 @@ public class AgentPipelineService {
                             // Emit: agent_run.completed (failed)
                             emitRunCompleted(runId, pipelineStart, "failed");
 
-                            sink.next(answerFinalEvent(
-                                    answerBuf.isEmpty()
-                                            ? "Sorry, I encountered an error generating a response."
-                                            : answerBuf.toString()));
+                            String answer = answerBuf.isEmpty()
+                                    ? "Sorry, I encountered an error generating a response."
+                                    : answerBuf.toString();
+                            memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
+                                    "ERROR", (Map<String, Object>) null);
+                            sink.next(answerFinalEvent(answer));
                             sink.next(doneEvent());
                             sink.complete();
                         })
@@ -336,9 +357,13 @@ public class AgentPipelineService {
         }
     }
 
-    private IntentRequest buildIntentRequest(AgentStreamRequest request, String question, String sessionId) {
+    private IntentRequest buildIntentRequest(AgentStreamRequest request,
+                                             String question,
+                                             String sessionId,
+                                             PlannerContext plannerContext) {
         return IntentRequest.builder()
                 .sessionId(nonBlank(sessionId, "anonymous-session"))
+                .conversationId(request.getConversationId())
                 .userId(request.getUserId())
                 .userEmail(request.getUserEmail())
                 .userRoles(request.getUserRoles())
@@ -346,21 +371,11 @@ public class AgentPipelineService {
                 .pageContext(request.getExt())
                 .pendingActionId(request.getPendingActionId())
                 .confirm(request.getConfirm())
-                .recentMessages(recentMessages(request))
+                .recentMessages(plannerContext.recentMessages())
+                .compactSummary(plannerContext.compactSummary())
+                .structuredState(plannerContext.structuredState())
+                .pendingActionContext(plannerContext.pendingAction())
                 .build();
-    }
-
-    private List<Map<String, String>> recentMessages(AgentStreamRequest request) {
-        if (request.getConversationHistory() == null || request.getConversationHistory().isEmpty()) {
-            return List.of();
-        }
-        int start = Math.max(0, request.getConversationHistory().size() - 6);
-        return request.getConversationHistory().subList(start, request.getConversationHistory().size()).stream()
-                .filter(turn -> turn.getContent() != null && !turn.getContent().isBlank())
-                .map(turn -> Map.of(
-                        "role", nonBlank(turn.getRole(), "user"),
-                        "content", turn.getContent()))
-                .toList();
     }
 
     private Map<String, Object> routePayload(AgentRouteDecision decision) {
@@ -381,7 +396,8 @@ public class AgentPipelineService {
                                     AgentStreamRequest request,
                                     IntentResponse response,
                                     UUID runId,
-                                    long pipelineStart) {
+                                    long pipelineStart,
+                                    String question) {
         if (response == null) {
             emitRunCompleted(runId, pipelineStart, "failed");
             sink.next(answerFinalEvent("Tool returned no response."));
@@ -398,10 +414,13 @@ public class AgentPipelineService {
         if (outputSafety.verdict() == SafetyVerdict.BLOCK) {
             log.warn("Tool answer blocked for session={}", request.getSessionId());
             emitRunCompleted(runId, pipelineStart, "blocked");
-            sink.next(answerFinalEvent("I apologize, but I cannot provide that response."));
+            String blocked = "I apologize, but I cannot provide that response.";
+            memoryWriter.writeTurnPair(request.getConversationId(), question, blocked, "BLOCKED", response);
+            sink.next(answerFinalEvent(blocked));
         } else {
             emitRunCompleted(runId, pipelineStart,
                     "OK".equals(response.getType()) ? "tool_completed" : response.getType().toLowerCase());
+            memoryWriter.writeTurnPair(request.getConversationId(), question, answer, response.getType(), response);
             sink.next(answerFinalEvent(answer, answerPayload(response)));
         }
 
@@ -471,12 +490,14 @@ public class AgentPipelineService {
         return "Tool result: " + result;
     }
 
-    private void requestHandoffConfirmation(FluxSink<Map<String, Object>> sink, AgentRouteDecision decision) {
+    private String requestHandoffConfirmation(FluxSink<Map<String, Object>> sink, AgentRouteDecision decision) {
         sink.next(stageEvent("handoff_confirm", "Confirming handoff...",
                 Map.of("requiresConfirmation", true, "reason", "USER_REQUESTED")));
-        sink.next(answerFinalEvent(nonBlank(decision.message(),
-                "I can connect you with a human support agent. Please confirm and provide an email for follow-up."),
+        String answer = nonBlank(decision.message(),
+                "I can connect you with a human support agent. Please confirm and provide an email for follow-up.");
+        sink.next(answerFinalEvent(answer,
                 Map.of("requiresConfirmation", true, "handoffReason", "USER_REQUESTED")));
+        return answer;
     }
 
     private void completeHandoff(FluxSink<Map<String, Object>> sink,
@@ -491,16 +512,20 @@ public class AgentPipelineService {
                 HandoffReason.USER_REQUESTED, question);
         sink.next(stageEvent("handoff", "Connecting you to human support...",
                 Map.of("ticketId", ticketId.toString(), "reason", "USER_REQUESTED")));
-        sink.next(answerFinalEvent(
-                "I've created a support ticket for you. A human agent will follow up shortly. "
-                        + "Your ticket ID is: " + ticketId.toString().substring(0, 8),
-                Map.of("ticketId", ticketId.toString())));
+        String answer = "I've created a support ticket for you. A human agent will follow up shortly. "
+                + "Your ticket ID is: " + ticketId.toString().substring(0, 8);
+        memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
+                "HANDOFF", Map.of("ticketId", ticketId.toString(), "targetTool", "human_handoff"));
+        sink.next(answerFinalEvent(answer, Map.of("ticketId", ticketId.toString())));
         emitRunCompleted(runId, pipelineStart, "handoff");
         sink.next(doneEvent());
         sink.complete();
     }
 
-    private String buildUserPrompt(String question, String context, AgentStreamRequest request) {
+    private String buildUserPrompt(String question,
+                                   String context,
+                                   AgentStreamRequest request,
+                                   PlannerContext plannerContext) {
         StringBuilder sb = new StringBuilder();
 
         // Add page context if available
@@ -522,14 +547,28 @@ public class AgentPipelineService {
             sb.append("\n\n");
         }
 
-        // Add conversation history
-        if (request.getConversationHistory() != null && !request.getConversationHistory().isEmpty()) {
-            sb.append("## Conversation History\n");
-            List<AgentStreamRequest.ConversationTurn> history = request.getConversationHistory();
-            int start = Math.max(0, history.size() - 6);
-            for (int i = start; i < history.size(); i++) {
-                AgentStreamRequest.ConversationTurn turn = history.get(i);
-                sb.append(turn.getRole()).append(": ").append(turn.getContent()).append("\n");
+        if (plannerContext.compactSummary() != null && !plannerContext.compactSummary().isEmpty()) {
+            sb.append("## Compact Conversation Summary\n");
+            sb.append(plannerContext.compactSummary()).append("\n\n");
+        }
+
+        if (plannerContext.structuredState() != null && !plannerContext.structuredState().isEmpty()) {
+            sb.append("## Structured Conversation State\n");
+            sb.append(plannerContext.structuredState()).append("\n\n");
+        }
+
+        if (plannerContext.pendingAction() != null && !plannerContext.pendingAction().isEmpty()) {
+            sb.append("## Pending Action\n");
+            sb.append(plannerContext.pendingAction()).append("\n\n");
+        }
+
+        if (plannerContext.recentMessages() != null && !plannerContext.recentMessages().isEmpty()) {
+            sb.append("## Recent Conversation Turns\n");
+            for (Map<String, String> turn : plannerContext.recentMessages()) {
+                sb.append(turn.getOrDefault("role", "user"))
+                        .append(": ")
+                        .append(turn.getOrDefault("content", ""))
+                        .append("\n");
             }
             sb.append("\n");
         }

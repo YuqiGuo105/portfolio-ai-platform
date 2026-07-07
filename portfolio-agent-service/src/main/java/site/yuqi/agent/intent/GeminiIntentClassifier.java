@@ -289,6 +289,21 @@ public class GeminiIntentClassifier implements IntentClassifier {
                 n.set("pageContext", objectMapper.valueToTree(request.getPageContext()));
             } catch (Exception ignored) { /* best-effort hint */ }
         }
+        if (request.getCompactSummary() != null && !request.getCompactSummary().isEmpty()) {
+            try {
+                n.set("compactSummary", objectMapper.valueToTree(request.getCompactSummary()));
+            } catch (Exception ignored) { /* best-effort hint */ }
+        }
+        if (request.getStructuredState() != null && !request.getStructuredState().isEmpty()) {
+            try {
+                n.set("structuredState", objectMapper.valueToTree(request.getStructuredState()));
+            } catch (Exception ignored) { /* best-effort hint */ }
+        }
+        if (request.getPendingActionContext() != null && !request.getPendingActionContext().isEmpty()) {
+            try {
+                n.set("pendingAction", objectMapper.valueToTree(request.getPendingActionContext()));
+            } catch (Exception ignored) { /* best-effort hint */ }
+        }
         // Include conversation history so the classifier can extract entities
         // from earlier turns (e.g. name/email/message provided a turn ago).
         if (request.getRecentMessages() != null && !request.getRecentMessages().isEmpty()) {

@@ -13,8 +13,9 @@ import java.util.Map;
 
 /**
  * Inbound chat request from ChatWidget. {@code sessionId} survives across
- * turns; {@code messages} carries the conversation tail (recent N turns only —
- * the agent does not store conversation history in Sprint 1).
+ * turns; {@code conversationId} is server-derived and used only for Redis
+ * hot memory. {@code messages} carries the client-side conversation tail for
+ * backward compatibility.
  */
 @Data
 @Builder
@@ -24,6 +25,8 @@ public class ChatRequest {
 
     @NotBlank
     private String sessionId;
+
+    private String conversationId;
 
     private String userEmail;
 
