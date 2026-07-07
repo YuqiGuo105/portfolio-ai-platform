@@ -68,7 +68,11 @@ import java.util.Set;
 public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
 
     private static final Set<String> PROTECTED_PREFIXES = Set.of(
-            "/api/intent", "/api/chat", "/api/rag");
+            "/api/intent", "/api/chat");
+
+    /** Endpoints where auth is optional — bearer validated if present, anonymous if absent. */
+    private static final Set<String> AUTH_OPTIONAL_PREFIXES = Set.of(
+            "/api/rag");
 
     /** Endpoints that must always be reachable without a bearer. */
     private static final Set<String> ALWAYS_OPEN = Set.of(
@@ -113,6 +117,9 @@ public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
         for (String prefix : PROTECTED_PREFIXES) {
             if (p.equals(prefix) || p.startsWith(prefix + "/")) return false;
         }
+        for (String prefix : AUTH_OPTIONAL_PREFIXES) {
+            if (p.equals(prefix) || p.startsWith(prefix + "/")) return false;
+        }
         return true;
     }
 
@@ -123,9 +130,21 @@ public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
             throws ServletException, IOException {
         String bearer = extractBearer(req.getHeader("Authorization"));
 
+        // Determine if this is an auth-optional path (e.g. /api/rag)
+        String uri = req.getRequestURI();
+        boolean authOptional = false;
+        if (uri != null) {
+            for (String prefix : AUTH_OPTIONAL_PREFIXES) {
+                if (uri.equals(prefix) || uri.startsWith(prefix + "/")) {
+                    authOptional = true;
+                    break;
+                }
+            }
+        }
+
         AuthenticatedPrincipal principal;
         if (bearer == null) {
-            if (!allowAnonymous) {
+            if (!allowAnonymous && !authOptional) {
                 reject(resp, "missing_bearer", "Missing Authorization: Bearer <token>.");
                 return;
             }
