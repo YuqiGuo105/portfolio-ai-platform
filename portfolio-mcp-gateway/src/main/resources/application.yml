@@ -50,7 +50,7 @@ domain:
     internal-token: ${NOTIFICATION_INTERNAL_TOKEN:}
     timeout-ms: ${NOTIFICATION_TIMEOUT_MS:15000}
   analytics:
-    base-url: ${ANALYTICS_SERVICE_BASE_URL:http://localhost:8083}
+    base-url: ${ANALYTICS_SERVICE_BASE_URL:https://portfolio-analytics-aggregator-702193211434.us-central1.run.app}
     internal-token: ${ANALYTICS_INTERNAL_TOKEN:}
     timeout-ms: ${ANALYTICS_TIMEOUT_MS:15000}
 

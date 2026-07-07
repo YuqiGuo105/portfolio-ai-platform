@@ -103,15 +103,15 @@ class IntentValidatorTest {
     }
 
     @Test
-    void executesAnalyticsReadToolThatRequiresTimeRangeConfirmation() {
+    void executesAnalyticsReadToolWithoutExplicitConfirmation() {
         IntentResult r = new IntentResult(
                 IntentType.ANALYTICS_GET_VISITOR_SUMMARY,
                 "analytics.get_visitor_summary", 0.95,
                 "en", "recent visitors", Map.of("timeRangePreset", "recent"),
-                RiskLevel.READ_ONLY, true, List.of(), null);
+                RiskLevel.READ_ONLY, false, List.of(), null);
         IntentValidator.ValidationResult v = validator.validate(r);
         assertThat(v.getStatus()).isEqualTo(IntentValidator.Status.EXECUTE);
-        assertThat(v.getTool().requiresConfirmation()).isTrue();
+        assertThat(v.getTool().requiresConfirmation()).isFalse();
     }
 
     @Test

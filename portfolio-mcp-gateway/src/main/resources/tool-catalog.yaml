@@ -96,23 +96,25 @@ tools:
     mode: READ
     description: Get aggregate visitor metrics for a confirmed time range. Never returns individual visitor details.
     requiredRole: VIEWER
-    riskLevel: MEDIUM
+    riskLevel: LOW
     dryRunSupported: false
-    confirmRequired: true
+    confirmRequired: false
     note: |
       Privacy invariants:
         * startDate/endDate must cover at least 7 days.
         * caller must set _confirmedTimeRange=true after user approval.
         * gateway strips raw visitor identifiers and suppresses tiny buckets.
+        * adapter translates startDate/endDate to a days window and calls the
+          public analytics summary endpoint; no admin path is required.
     parameters:
       - { name: startDate, type: string, required: true, description: "ISO date, inclusive." }
       - { name: endDate,   type: string, required: true, description: "ISO date, inclusive. Minimum range is 7 days." }
       - { name: granularity, type: string, required: false, description: "week | month." }
-      - { name: dimensions, type: array, required: false, description: "Aggregate-only breakdowns, for example country, city, deviceCategory." }
+      - { name: dimensions, type: array, required: false, description: "Aggregate-only breakdowns, for example country, deviceCategory." }
     endpoint:
       target: analytics
       method: GET
-      path: /api/admin/analytics/visitors/summary
+      path: /api/public/visits/summary
 
   - name: analytics.get_top_pages
     mode: READ
@@ -120,7 +122,7 @@ tools:
     requiredRole: VIEWER
     riskLevel: LOW
     dryRunSupported: false
-    confirmRequired: true
+    confirmRequired: false
     parameters:
       - { name: startDate, type: string, required: true, description: "ISO date, inclusive." }
       - { name: endDate,   type: string, required: true, description: "ISO date, inclusive. Minimum range is 7 days." }
@@ -128,7 +130,7 @@ tools:
     endpoint:
       target: analytics
       method: GET
-      path: /api/admin/analytics/pages/top
+      path: /api/public/visits/summary
 
   - name: analytics.get_referrer_summary
     mode: READ
@@ -136,14 +138,14 @@ tools:
     requiredRole: VIEWER
     riskLevel: LOW
     dryRunSupported: false
-    confirmRequired: true
+    confirmRequired: false
     parameters:
       - { name: startDate, type: string, required: true, description: "ISO date, inclusive." }
       - { name: endDate,   type: string, required: true, description: "ISO date, inclusive. Minimum range is 7 days." }
     endpoint:
       target: analytics
       method: GET
-      path: /api/admin/analytics/referrers/summary
+      path: /api/public/visits/summary
 
   # ── Admin: write ────────────────────────────────────────────────────────
   - name: admin.create_content_draft

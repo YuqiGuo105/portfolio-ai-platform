@@ -15,24 +15,26 @@ class PolicyGuardAnalyticsTest {
             IntentType.ANALYTICS_GET_VISITOR_SUMMARY,
             "Get aggregate visitor metrics.",
             RiskLevel.READ_ONLY,
-            true,
+            false,
             Set.of(),
             Set.of("startDate", "endDate", "dimensions")
     );
 
     @Test
-    void anonymousCannotRunAnalyticsTools() {
+    void anonymousCanRunAggregateAnalyticsTools() {
+        // Aggregate analytics is an explicit public read: PolicyGuard grants
+        // implicit VIEWER to anonymous callers for tools in ANONYMOUS_READ_TOOLS.
         PolicyGuard.PolicyDecision decision = guard.check(
                 analyticsTool,
                 Map.of("startDate", "2026-06-30", "endDate", "2026-07-06"),
                 IntentRequest.builder().sessionId("s1").utterance("recent visitors").build());
 
-        assertThat(decision.isAllowed()).isFalse();
-        assertThat(decision.getReason()).contains("VIEWER");
+        assertThat(decision.isAllowed()).isTrue();
+        assertThat(decision.isRequiresConfirmation()).isFalse();
     }
 
     @Test
-    void viewerCanStageAnalyticsConfirmation() {
+    void viewerCanRunAnalyticsWithoutConfirmation() {
         PolicyGuard.PolicyDecision decision = guard.check(
                 analyticsTool,
                 Map.of("startDate", "2026-06-30", "endDate", "2026-07-06"),
@@ -43,6 +45,6 @@ class PolicyGuardAnalyticsTest {
                         .build());
 
         assertThat(decision.isAllowed()).isTrue();
-        assertThat(decision.isRequiresConfirmation()).isTrue();
+        assertThat(decision.isRequiresConfirmation()).isFalse();
     }
 }

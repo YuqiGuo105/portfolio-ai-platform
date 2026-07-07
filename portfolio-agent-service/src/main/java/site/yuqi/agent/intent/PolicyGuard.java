@@ -58,7 +58,10 @@ public class PolicyGuard {
 
     private static final Set<String> ANONYMOUS_READ_TOOLS = Set.of(
             "admin.search_content",
-            "admin.get_content"
+            "admin.get_content",
+            "analytics.get_visitor_summary",
+            "analytics.get_top_pages",
+            "analytics.get_referrer_summary"
     );
 
     public PolicyDecision check(ToolDefinition tool,

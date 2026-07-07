@@ -71,7 +71,7 @@ public class ToolRegistry {
                 IntentType.ANALYTICS_GET_VISITOR_SUMMARY,
                 "Get aggregate visitor metrics only. Never returns specific visitor identity, IP, email, session, or raw events.",
                 RiskLevel.READ_ONLY,
-                true,
+                false,
                 Set.of(),
                 Set.of("startDate", "endDate", "granularity", "timeRangePreset", "dimensions")
         ));
@@ -80,7 +80,7 @@ public class ToolRegistry {
                 IntentType.ANALYTICS_GET_TOP_PAGES,
                 "Get top pages by aggregate visits only. Minimum confirmed analytics window is 7 days.",
                 RiskLevel.READ_ONLY,
-                true,
+                false,
                 Set.of(),
                 Set.of("startDate", "endDate", "limit", "timeRangePreset")
         ));
@@ -89,7 +89,7 @@ public class ToolRegistry {
                 IntentType.ANALYTICS_GET_REFERRER_SUMMARY,
                 "Get aggregate traffic source and referrer summary only. Never returns individual visitor details.",
                 RiskLevel.READ_ONLY,
-                true,
+                false,
                 Set.of(),
                 Set.of("startDate", "endDate", "timeRangePreset")
         ));
