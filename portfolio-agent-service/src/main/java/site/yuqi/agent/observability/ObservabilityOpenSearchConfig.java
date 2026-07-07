@@ -8,12 +8,14 @@ import org.opensearch.client.RestClient;
 import org.opensearch.client.json.jackson.JacksonJsonpMapper;
 import org.opensearch.client.opensearch.OpenSearchClient;
 import org.opensearch.client.transport.rest_client.RestClientTransport;
-import org.springframework.boot.autoconfigure.condition.ConditionalOnBean;
 import org.springframework.context.annotation.Bean;
 import org.springframework.context.annotation.Configuration;
 
+/**
+ * Creates the OpenSearch client for observability event publishing.
+ * Only active when observability.opensearch.url is configured.
+ */
 @Configuration
-@ConditionalOnBean(OutboxRepository.class)
 public class ObservabilityOpenSearchConfig {
 
     @Bean(destroyMethod = "close")
