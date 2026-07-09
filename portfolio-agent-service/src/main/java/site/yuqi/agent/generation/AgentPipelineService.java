@@ -43,6 +43,7 @@ public class AgentPipelineService {
     private final SafetyService safetyService;
     private final KnowledgeClient knowledgeClient;
     private final GeminiGenerationService generationService;
+    private final ResponseLanguageService responseLanguageService;
     private final HandoffService handoffService;
     private final EventRecorder eventRecorder;
     private final LlmAgentRoutePlanner routePlanner;
@@ -58,7 +59,8 @@ public class AgentPipelineService {
             - Answer based on the provided context (knowledge base chunks).
             - If context is insufficient, say so honestly rather than making things up.
             - Be concise, friendly, and professional.
-            - Support both English and Chinese — respond in the same language as the question.
+            - Detect the current user's input language and write the answer in that same language.
+            - Do not switch languages just because context, retrieved chunks, or recent turns use another language.
             - When referencing projects or blog posts, mention their titles.
             - For technical questions about Yuqi's work, provide specific details from context.
             """;
@@ -67,7 +69,7 @@ public class AgentPipelineService {
             You are Yuqi's AI assistant. Convert a backend tool result into a concise user-facing answer.
             Use only the provided tool result. Do not invent data.
             For analytics results, describe aggregate metrics only and do not expose personal identifiers.
-            Respond in the same language as the user's question.
+            Detect the current user's input language and write the answer in that same language.
             """;
 
     /**
@@ -126,7 +128,7 @@ public class AgentPipelineService {
                     // Emit: agent_run.completed
                     emitRunCompleted(runId, pipelineStart, "blocked");
 
-                    String answer = "I'm sorry, I can't help with that request.";
+                    String answer = alignAnswer(question, "I'm sorry, I can't help with that request.");
                     memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "BLOCKED", (Map<String, Object>) null);
                     sink.next(answerFinalEvent(answer));
                     sink.next(doneEvent());
@@ -170,7 +172,8 @@ public class AgentPipelineService {
                     }
                     case CLARIFY -> {
                         emitRunCompleted(runId, pipelineStart, "clarify");
-                        String answer = nonBlank(routeDecision.message(), "Could you clarify what you need?");
+                        String answer = alignAnswer(question,
+                                nonBlank(routeDecision.message(), "Could you clarify what you need?"));
                         memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "CLARIFY", (Map<String, Object>) null);
                         sink.next(answerFinalEvent(answer));
                         sink.next(doneEvent());
@@ -178,7 +181,7 @@ public class AgentPipelineService {
                         return;
                     }
                     case HANDOFF -> {
-                        String answer = requestHandoffConfirmation(sink, routeDecision);
+                        String answer = requestHandoffConfirmation(sink, question, routeDecision);
                         memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "HANDOFF", (Map<String, Object>) null);
                         emitRunCompleted(runId, pipelineStart, "handoff_pending");
                         sink.next(doneEvent());
@@ -187,8 +190,8 @@ public class AgentPipelineService {
                     }
                     case GENERAL_CHAT -> {
                         emitRunCompleted(runId, pipelineStart, "general_chat");
-                        String answer = nonBlank(routeDecision.message(),
-                                "I can help with Yuqi's portfolio, site analytics, content operations, and support workflows.");
+                        String answer = alignAnswer(question, nonBlank(routeDecision.message(),
+                                "I can help with Yuqi's portfolio, site analytics, content operations, and support workflows."));
                         memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "GENERAL_CHAT", (Map<String, Object>) null);
                         sink.next(answerFinalEvent(answer));
                         sink.next(doneEvent());
@@ -254,6 +257,7 @@ public class AgentPipelineService {
                         })
                         .doOnComplete(() -> {
                             String fullAnswer = answerBuf.toString();
+                            String finalAnswer = alignAnswer(question, fullAnswer);
                             int generationLatency = (int) (System.currentTimeMillis() - generationStart);
 
                             // Emit: model_call.completed
@@ -271,7 +275,7 @@ public class AgentPipelineService {
                                     .build());
 
                             // Stage 5: Output safety check
-                            SafetyCheckResult outputSafety = safetyService.checkOutput(fullAnswer, runId);
+                            SafetyCheckResult outputSafety = safetyService.checkOutput(finalAnswer, runId);
                             if (outputSafety.verdict() == SafetyVerdict.BLOCK) {
                                 log.warn("Output blocked for session={}", sessionId);
 
@@ -287,7 +291,7 @@ public class AgentPipelineService {
                                         .build());
 
                                 emitRunCompleted(runId, pipelineStart, "blocked");
-                                String answer = "I apologize, but I cannot provide that response.";
+                                String answer = alignAnswer(question, "I apologize, but I cannot provide that response.");
                                 memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
                                         "BLOCKED", (Map<String, Object>) null);
                                 sink.next(answerFinalEvent(answer));
@@ -299,7 +303,7 @@ public class AgentPipelineService {
                                         .latencyMs((int) (System.currentTimeMillis() - pipelineStart))
                                         .status("answered")
                                         .payload(Map.of(
-                                                "answerLength", fullAnswer.length(),
+                                                "answerLength", finalAnswer.length(),
                                                 "chunksUsed", chunkCount,
                                                 "inputSafetyVerdict", inputSafety.verdict().name(),
                                                 "outputSafetyVerdict", outputSafety.verdict().name(),
@@ -308,9 +312,9 @@ public class AgentPipelineService {
                                         .build());
 
                                 emitRunCompleted(runId, pipelineStart, "completed");
-                                memoryWriter.writeTurnPair(request.getConversationId(), question, fullAnswer,
+                                memoryWriter.writeTurnPair(request.getConversationId(), question, finalAnswer,
                                         "KNOWLEDGE_QA", (Map<String, Object>) null);
-                                sink.next(answerFinalEvent(fullAnswer));
+                                sink.next(answerFinalEvent(finalAnswer));
                             }
                             sink.next(doneEvent());
                             sink.complete();
@@ -324,6 +328,7 @@ public class AgentPipelineService {
                             String answer = answerBuf.isEmpty()
                                     ? "Sorry, I encountered an error generating a response."
                                     : answerBuf.toString();
+                            answer = alignAnswer(question, answer);
                             memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
                                     "ERROR", (Map<String, Object>) null);
                             sink.next(answerFinalEvent(answer));
@@ -400,7 +405,7 @@ public class AgentPipelineService {
                                     String question) {
         if (response == null) {
             emitRunCompleted(runId, pipelineStart, "failed");
-            sink.next(answerFinalEvent("Tool returned no response."));
+            sink.next(answerFinalEvent(alignAnswer(question, "Tool returned no response.")));
             sink.next(doneEvent());
             sink.complete();
             return;
@@ -409,12 +414,12 @@ public class AgentPipelineService {
         sink.next(stageEvent("tool_result", "Tool response received",
                 intentResponsePayload(response)));
 
-        String answer = renderIntentResponse(request, response);
+        String answer = alignAnswer(question, renderIntentResponse(request, response));
         SafetyCheckResult outputSafety = safetyService.checkOutput(answer, runId);
         if (outputSafety.verdict() == SafetyVerdict.BLOCK) {
             log.warn("Tool answer blocked for session={}", request.getSessionId());
             emitRunCompleted(runId, pipelineStart, "blocked");
-            String blocked = "I apologize, but I cannot provide that response.";
+            String blocked = alignAnswer(question, "I apologize, but I cannot provide that response.");
             memoryWriter.writeTurnPair(request.getConversationId(), question, blocked, "BLOCKED", response);
             sink.next(answerFinalEvent(blocked));
         } else {
@@ -490,11 +495,13 @@ public class AgentPipelineService {
         return "Tool result: " + result;
     }
 
-    private String requestHandoffConfirmation(FluxSink<Map<String, Object>> sink, AgentRouteDecision decision) {
+    private String requestHandoffConfirmation(FluxSink<Map<String, Object>> sink,
+                                              String question,
+                                              AgentRouteDecision decision) {
         sink.next(stageEvent("handoff_confirm", "Confirming handoff...",
                 Map.of("requiresConfirmation", true, "reason", "USER_REQUESTED")));
-        String answer = nonBlank(decision.message(),
-                "I can connect you with a human support agent. Please confirm and provide an email for follow-up.");
+        String answer = alignAnswer(question, nonBlank(decision.message(),
+                "I can connect you with a human support agent. Please confirm and provide an email for follow-up."));
         sink.next(answerFinalEvent(answer,
                 Map.of("requiresConfirmation", true, "handoffReason", "USER_REQUESTED")));
         return answer;
@@ -512,8 +519,8 @@ public class AgentPipelineService {
                 HandoffReason.USER_REQUESTED, question);
         sink.next(stageEvent("handoff", "Connecting you to human support...",
                 Map.of("ticketId", ticketId.toString(), "reason", "USER_REQUESTED")));
-        String answer = "I've created a support ticket for you. A human agent will follow up shortly. "
-                + "Your ticket ID is: " + ticketId.toString().substring(0, 8);
+        String answer = alignAnswer(question, "I've created a support ticket for you. A human agent will follow up shortly. "
+                + "Your ticket ID is: " + ticketId.toString().substring(0, 8));
         memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
                 "HANDOFF", Map.of("ticketId", ticketId.toString(), "targetTool", "human_handoff"));
         sink.next(answerFinalEvent(answer, Map.of("ticketId", ticketId.toString())));
@@ -573,6 +580,10 @@ public class AgentPipelineService {
             sb.append("\n");
         }
 
+        sb.append("## Output Language Rule\n");
+        sb.append("Detect the language of the current Question and write the final answer in that same language. ");
+        sb.append("Use retrieved context only for facts; do not copy its language if it differs from the Question.\n\n");
+
         sb.append("## Question\n");
         sb.append(question);
 
@@ -612,6 +623,10 @@ public class AgentPipelineService {
 
     private Map<String, Object> doneEvent() {
         return Map.of("stage", "done");
+    }
+
+    private String alignAnswer(String question, String candidateAnswer) {
+        return responseLanguageService.alignToInputLanguage(question, candidateAnswer);
     }
 
     private static String nonBlank(String value, String fallback) {

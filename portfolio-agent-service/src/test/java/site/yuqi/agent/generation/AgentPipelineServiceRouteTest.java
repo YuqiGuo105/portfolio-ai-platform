@@ -37,6 +37,7 @@ class AgentPipelineServiceRouteTest {
     private SafetyService safetyService;
     private KnowledgeClient knowledgeClient;
     private GeminiGenerationService generationService;
+    private ResponseLanguageService responseLanguageService;
     private LlmAgentRoutePlanner routePlanner;
     private IntentOrchestrator intentOrchestrator;
     private ConversationContextLoader contextLoader;
@@ -48,6 +49,7 @@ class AgentPipelineServiceRouteTest {
         safetyService = mock(SafetyService.class);
         knowledgeClient = mock(KnowledgeClient.class);
         generationService = mock(GeminiGenerationService.class);
+        responseLanguageService = mock(ResponseLanguageService.class);
         routePlanner = mock(LlmAgentRoutePlanner.class);
         intentOrchestrator = mock(IntentOrchestrator.class);
         contextLoader = mock(ConversationContextLoader.class);
@@ -57,6 +59,7 @@ class AgentPipelineServiceRouteTest {
                 safetyService,
                 knowledgeClient,
                 generationService,
+                responseLanguageService,
                 mock(HandoffService.class),
                 mock(EventRecorder.class),
                 routePlanner,
@@ -71,6 +74,8 @@ class AgentPipelineServiceRouteTest {
         when(safetyService.checkInput(anyString(), any())).thenReturn(pass);
         when(safetyService.checkOutput(anyString(), any())).thenReturn(pass);
         when(contextLoader.load(any(), any())).thenReturn(PlannerContext.empty(List.of()));
+        when(responseLanguageService.alignToInputLanguage(anyString(), anyString()))
+                .thenAnswer(invocation -> invocation.getArgument(1));
     }
 
     @Test
