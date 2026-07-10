@@ -6,6 +6,8 @@ import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
 import reactor.core.scheduler.Schedulers;
+import site.yuqi.agent.budget.BudgetDecision;
+import site.yuqi.agent.budget.ChatBudgetService;
 import site.yuqi.agent.client.KnowledgeClient;
 import site.yuqi.agent.conversation.ConversationContextLoader;
 import site.yuqi.agent.conversation.MemoryWriter;
@@ -50,6 +52,7 @@ public class AgentPipelineService {
     private final IntentOrchestrator intentOrchestrator;
     private final ConversationContextLoader contextLoader;
     private final MemoryWriter memoryWriter;
+    private final ChatBudgetService chatBudgetService;
 
     private static final String SYSTEM_PROMPT = """
             You are Yuqi's AI assistant on his portfolio website (yuqi.site).
@@ -89,11 +92,29 @@ public class AgentPipelineService {
 
             UUID runId = UUID.randomUUID();
             long pipelineStart = System.currentTimeMillis();
-            PlannerContext plannerContext = contextLoader.load(
-                    request.getConversationId(),
-                    List.of());
 
             try {
+                BudgetDecision budgetDecision = chatBudgetService.reserveChatRequest();
+                if (!budgetDecision.allowed()) {
+                    log.warn("Daily chat budget denied session={} reason={} used={} limit={}",
+                            sessionId,
+                            budgetDecision.reason(),
+                            budgetDecision.usedUsd(),
+                            budgetDecision.limitUsd());
+                    sink.next(stageEvent("budget_check", "Daily chat budget exhausted",
+                            budgetPayload(budgetDecision)));
+                    emitRunCompleted(runId, pipelineStart, "budget_exhausted");
+                    sink.next(answerFinalEvent(budgetExceededMessage(budgetDecision),
+                            budgetPayload(budgetDecision)));
+                    sink.next(doneEvent());
+                    sink.complete();
+                    return;
+                }
+
+                PlannerContext plannerContext = contextLoader.load(
+                        request.getConversationId(),
+                        List.of());
+
                 // Emit: agent_run.started
                 eventRecorder.record(PlatformEvent.now(EventTypes.AGENT_RUN_STARTED)
                         .runId(runId)
@@ -104,7 +125,8 @@ public class AgentPipelineService {
                                 "sessionId", sessionId != null ? sessionId : "",
                                 "agentVersion", "agent_v4",
                                 "promptProfile", "portfolio_assistant",
-                                "runMode", "production"))
+                                "runMode", "production",
+                                "dailyBudget", budgetPayload(budgetDecision)))
                         .build());
 
                 // Stage 1: Input safety check
@@ -458,6 +480,26 @@ public class AgentPipelineService {
             payload.put("targetTool", response.getIntent().targetTool());
         }
         return payload;
+    }
+
+    private Map<String, Object> budgetPayload(BudgetDecision decision) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("limitUsd", decision.limitUsd());
+        payload.put("usedUsd", decision.usedUsd());
+        payload.put("remainingUsd", decision.remainingUsd());
+        payload.put("reservedUsd", decision.reservedUsd());
+        payload.put("resetAt", decision.resetAt().toString());
+        if (decision.reason() != null) {
+            payload.put("reason", decision.reason());
+        }
+        return payload;
+    }
+
+    private String budgetExceededMessage(BudgetDecision decision) {
+        return "The daily chat agent budget has been reached. "
+                + "Limit: $" + decision.limitUsd().toPlainString()
+                + ", used today: $" + decision.usedUsd().toPlainString()
+                + ". Please try again after " + decision.resetAt() + ".";
     }
 
     private String renderIntentResponse(AgentStreamRequest request, IntentResponse response) {

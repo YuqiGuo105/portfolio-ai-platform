@@ -58,6 +58,12 @@ agent:
     idle-scan-interval-ms: ${AGENT_MEMORY_IDLE_SCAN_INTERVAL_MS:60000}
     tool-result-max-chars: ${AGENT_MEMORY_TOOL_RESULT_MAX_CHARS:3000}
 
+  budget:
+    enabled: ${AGENT_BUDGET_ENABLED:true}
+    daily-usd-limit: ${AGENT_CHAT_DAILY_BUDGET_USD:2.00}
+    per-request-reservation-usd: ${AGENT_CHAT_REQUEST_RESERVATION_USD:0.05}
+    zone: ${AGENT_BUDGET_ZONE:UTC}
+
   sse:
     keep-alive-interval-ms: ${AGENT_SSE_KEEPALIVE_MS:15000}
     timeout-ms: ${AGENT_SSE_TIMEOUT_MS:120000}

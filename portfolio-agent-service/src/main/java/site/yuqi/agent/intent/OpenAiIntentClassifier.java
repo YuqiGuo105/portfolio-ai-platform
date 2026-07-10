@@ -217,23 +217,9 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             11. Analytics tools are aggregate-only. Never use them to answer "who visited", emails, IPs, session IDs, exact timestamps, or individual visitor tracking.
             12. For vague analytics ranges like "recent visitors", use the last 7 days ending on Current UTC date and set requiresConfirmation=true.
             13. For analytics ranges shorter than 7 days, expand to a 7-day window ending on the requested end date and set requiresConfirmation=true.
-            14. ANALYTICS FOLLOW-UP (CRITICAL): If recentMessages show that an analytics tool was called or an analytics summary was returned (containing visitor counts, country breakdowns, device counts, or page view numbers), then follow-up questions asking for more detail — such as cities, devices, referrers, pages, sources — MUST route to the SAME analytics tool with the appropriate dimensions entity.
-                These are analytics follow-ups, NOT knowledge-base questions. NEVER route them to KNOWLEDGE_QA.
-                Examples of analytics follow-up phrases: "具体哪些城市？", "which cities?", "what devices?", "show me by city", "break it down", "city detail", "device breakdown", "referrer detail", "哪些城市和设备", "具体城市", "城市细节".
 
             Allowed tools:
             %s
-
-            Worked example (ANALYTICS FOLLOW-UP — most important):
-              recentMessages:
-                user:      "最近的访客"
-                assistant: "In the last 7 days: 171 events, 170 page views, 1 click. Top countries: US (114), China (29), Singapore (28). Desktop: 114, Mobile: 56."
-              current utterance: "具体哪些城市和设备呢？" / "which specific cities and devices?"
-              → intent: ANALYTICS_GET_VISITOR_SUMMARY
-              → targetTool: analytics.get_visitor_summary
-              → entities: { "dimensions": ["city", "deviceCategory"], "timeRangePreset": "recent" }
-              → requiresConfirmation: true
-              → DO NOT route this to KNOWLEDGE_QA. The assistant cannot know city-level analytics from the knowledge base.
 
             Output JSON schema (return EXACTLY these fields, no extras):
             {
@@ -258,21 +244,6 @@ public class OpenAiIntentClassifier implements IntentClassifier {
         if (request.getPageContext() != null) {
             try {
                 n.set("pageContext", objectMapper.valueToTree(request.getPageContext()));
-            } catch (Exception ignored) { /* best-effort hint */ }
-        }
-        if (request.getCompactSummary() != null && !request.getCompactSummary().isEmpty()) {
-            try {
-                n.set("compactSummary", objectMapper.valueToTree(request.getCompactSummary()));
-            } catch (Exception ignored) { /* best-effort hint */ }
-        }
-        if (request.getStructuredState() != null && !request.getStructuredState().isEmpty()) {
-            try {
-                n.set("structuredState", objectMapper.valueToTree(request.getStructuredState()));
-            } catch (Exception ignored) { /* best-effort hint */ }
-        }
-        if (request.getPendingActionContext() != null && !request.getPendingActionContext().isEmpty()) {
-            try {
-                n.set("pendingAction", objectMapper.valueToTree(request.getPendingActionContext()));
             } catch (Exception ignored) { /* best-effort hint */ }
         }
         // Include conversation history so the classifier can extract entities

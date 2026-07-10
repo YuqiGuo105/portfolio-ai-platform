@@ -2,6 +2,8 @@ package site.yuqi.agent.generation;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import site.yuqi.agent.budget.BudgetDecision;
+import site.yuqi.agent.budget.ChatBudgetService;
 import site.yuqi.agent.client.KnowledgeClient;
 import site.yuqi.agent.conversation.ConversationContextLoader;
 import site.yuqi.agent.conversation.MemoryWriter;
@@ -19,6 +21,8 @@ import site.yuqi.agent.safety.SafetyCheckResult;
 import site.yuqi.agent.safety.SafetyService;
 import site.yuqi.agent.safety.SafetyVerdict;
 
+import java.math.BigDecimal;
+import java.time.Instant;
 import java.util.List;
 import java.util.Map;
 
@@ -42,6 +46,7 @@ class AgentPipelineServiceRouteTest {
     private IntentOrchestrator intentOrchestrator;
     private ConversationContextLoader contextLoader;
     private MemoryWriter memoryWriter;
+    private ChatBudgetService chatBudgetService;
     private AgentPipelineService service;
 
     @BeforeEach
@@ -54,6 +59,7 @@ class AgentPipelineServiceRouteTest {
         intentOrchestrator = mock(IntentOrchestrator.class);
         contextLoader = mock(ConversationContextLoader.class);
         memoryWriter = mock(MemoryWriter.class);
+        chatBudgetService = mock(ChatBudgetService.class);
 
         service = new AgentPipelineService(
                 safetyService,
@@ -65,7 +71,8 @@ class AgentPipelineServiceRouteTest {
                 routePlanner,
                 intentOrchestrator,
                 contextLoader,
-                memoryWriter);
+                memoryWriter,
+                chatBudgetService);
 
         SafetyCheckResult pass = SafetyCheckResult.builder()
                 .verdict(SafetyVerdict.PASS)
@@ -76,6 +83,12 @@ class AgentPipelineServiceRouteTest {
         when(contextLoader.load(any(), any())).thenReturn(PlannerContext.empty(List.of()));
         when(responseLanguageService.alignToInputLanguage(anyString(), anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+        when(chatBudgetService.reserveChatRequest()).thenReturn(BudgetDecision.allowed(
+                new BigDecimal("2.00"),
+                new BigDecimal("0.05"),
+                new BigDecimal("1.95"),
+                new BigDecimal("0.05"),
+                Instant.parse("2026-07-10T00:00:00Z")));
     }
 
     @Test
@@ -133,6 +146,31 @@ class AgentPipelineServiceRouteTest {
         assertThat(payload)
                 .containsEntry("pendingActionId", "pending-123")
                 .containsEntry("responseType", "CONFIRMATION_REQUIRED");
+        verify(knowledgeClient, never()).search(anyString(), anyInt());
+    }
+
+    @Test
+    void exhaustedDailyBudgetStopsBeforeSafetyAndRouting() {
+        when(chatBudgetService.reserveChatRequest()).thenReturn(BudgetDecision.denied(
+                "daily_budget_exhausted",
+                new BigDecimal("2.00"),
+                new BigDecimal("2.00"),
+                BigDecimal.ZERO,
+                new BigDecimal("0.05"),
+                Instant.parse("2026-07-10T00:00:00Z")));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s1")
+                        .question("recent visitors?")
+                        .build())
+                .collectList()
+                .block();
+
+        assertThat(events).isNotNull();
+        assertThat(events).extracting(event -> event.get("stage"))
+                .containsExactly("budget_check", "answer_final", "done");
+        verify(safetyService, never()).checkInput(anyString(), any());
+        verify(routePlanner, never()).plan(any(IntentRequest.class));
         verify(knowledgeClient, never()).search(anyString(), anyInt());
     }
 

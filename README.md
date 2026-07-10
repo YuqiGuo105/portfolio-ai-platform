@@ -312,6 +312,10 @@ Common local environment variables:
 | `AGENT_MEMORY_TTL_SECONDS` | Sliding Redis TTL, default `1800` |
 | `AGENT_MEMORY_MAX_TURNS_BEFORE_COMPACT` | Turn threshold for compaction |
 | `AGENT_MEMORY_TOKEN_BUDGET` | Approximate planner memory token budget |
+| `AGENT_BUDGET_ENABLED` | Enables Redis-backed chat budget guard, default `true` |
+| `AGENT_CHAT_DAILY_BUDGET_USD` | Daily chat agent budget, default `2.00` |
+| `AGENT_CHAT_REQUEST_RESERVATION_USD` | Estimated budget reserved per chat request, default `0.05` |
+| `AGENT_BUDGET_ZONE` | Daily reset timezone, default `UTC` |
 | `AGENT_INTENT_PROVIDER` | `gemini` or `openai` |
 | `GEMINI_API_KEY` | Gemini classifier/generation/safety access |
 | `OPENAI_API_KEY` | OpenAI fallback classifier or embedding access |
