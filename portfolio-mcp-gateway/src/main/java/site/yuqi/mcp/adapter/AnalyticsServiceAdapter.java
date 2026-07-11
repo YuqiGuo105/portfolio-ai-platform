@@ -70,7 +70,11 @@ public class AnalyticsServiceAdapter extends AbstractHttpAdapter {
         }
 
         int days = computeDays(args);
-        String path = "/api/public/visits/summary";
+        String path = switch (tool.getName()) {
+            case "analytics.get_top_pages" -> "/api/public/visits/top-pages";
+            case "analytics.get_referrer_summary" -> "/api/public/visits/referrers";
+            default -> "/api/public/visits/summary";
+        };
 
         WebClient client = webClientBuilder.baseUrl(baseUrl).build();
         try {
@@ -144,4 +148,3 @@ public class AnalyticsServiceAdapter extends AbstractHttpAdapter {
         }
     }
 }
-
