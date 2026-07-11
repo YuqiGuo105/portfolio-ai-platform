@@ -57,9 +57,9 @@ public class AgentStreamController {
         }
         request.setConversationId(ConversationKey.derive(httpReq, request.getSessionId()));
 
-        log.info("Agent stream request session={} question={}",
+        log.info("Agent stream request session={} questionLength={}",
                 request.getSessionId(),
-                request.getQuestion() != null ? request.getQuestion().substring(0, Math.min(80, request.getQuestion().length())) : "null");
+                request.getQuestion() == null ? 0 : request.getQuestion().length());
 
         SseEmitter emitter = new SseEmitter(sseTimeoutMs);
 

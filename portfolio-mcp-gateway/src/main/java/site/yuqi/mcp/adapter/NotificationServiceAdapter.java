@@ -9,7 +9,7 @@ import java.util.Map;
 
 /**
  * Forwards to portfolio-notification-service. Uses a static internal
- * service-to-service bearer token sourced from
+ * service-to-service shared token sourced from
  * {@code NOTIFICATION_INTERNAL_TOKEN}.
  */
 @Component
@@ -46,7 +46,7 @@ public class NotificationServiceAdapter extends AbstractHttpAdapter {
     @Override
     protected void decorate(WebClient.RequestHeadersSpec<?> spec, Map<String, Object> args) {
         if (internalToken != null && !internalToken.isBlank()) {
-            spec.header("Authorization", "Bearer " + internalToken);
+            spec.header("X-Internal-Token", internalToken);
         }
     }
 }

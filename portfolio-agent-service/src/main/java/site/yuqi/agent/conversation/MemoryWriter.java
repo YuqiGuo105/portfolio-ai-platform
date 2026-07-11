@@ -28,8 +28,12 @@ public class MemoryWriter {
         if (conversationId == null || conversationId.isBlank()) return;
         String targetTool = targetTool(response);
         Map<String, Object> toolContext = toolContext(response);
-        MemoryTurn userTurn = turn("user", userText, route, null, null);
-        MemoryTurn assistantTurn = turn("assistant", assistantText, route, targetTool, toolContext);
+        String safeUserText = "subscription.confirm_unsubscribe".equals(targetTool)
+                ? "[REDACTED EMAIL VERIFICATION CODE]"
+                : userText;
+        MemoryTurn userTurn = turn("user", safeUserText, route, null, null);
+        MemoryTurn assistantTurn = turn("assistant", memoryAssistantText(assistantText, targetTool, response),
+                route, targetTool, toolContext);
         Map<String, Object> pendingAction = pendingAction(response);
         boolean clearPending = response == null || !"CONFIRMATION_REQUIRED".equals(response.getType());
         redisStore.append(conversationId, List.of(userTurn, assistantTurn), pendingAction, clearPending);
@@ -100,6 +104,20 @@ public class MemoryWriter {
 
     private String targetTool(IntentResponse response) {
         return response != null && response.getIntent() != null ? response.getIntent().targetTool() : null;
+    }
+
+    private String memoryAssistantText(String assistantText, String targetTool, IntentResponse response) {
+        if (!"subscription.request_unsubscribe_code".equals(targetTool)
+                || response == null || !(response.getResult() instanceof Map<?, ?> result)) {
+            return assistantText;
+        }
+        Object verificationId = result.get("verificationId");
+        if (verificationId == null || String.valueOf(verificationId).isBlank()) return assistantText;
+        return nonBlank(assistantText) + " Trusted tool verificationId: " + verificationId;
+    }
+
+    private String nonBlank(String value) {
+        return value == null ? "" : value;
     }
 
     private int approxTokens(String text) {

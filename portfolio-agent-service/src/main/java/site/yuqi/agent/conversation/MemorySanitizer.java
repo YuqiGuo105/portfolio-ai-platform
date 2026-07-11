@@ -17,7 +17,8 @@ public class MemorySanitizer {
             "servicerolekey", "service_role_key",
             "openaiapikey", "openai_api_key",
             "geminiapikey", "gemini_api_key",
-            "otp", "one_time_password");
+            "otp", "one_time_password", "verificationcode", "verification_code",
+            "codehash", "code_hash");
 
     public Object sanitize(Object value) {
         if (value == null) return null;

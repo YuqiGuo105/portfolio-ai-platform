@@ -30,7 +30,8 @@ public class AuditService {
             "apiKey", "api_key", "authorization", "token", "secret", "password",
             "serviceRoleKey", "service_role_key",
             "openaiApiKey", "openai_api_key",
-            "geminiApiKey", "gemini_api_key");
+            "geminiApiKey", "gemini_api_key", "otp", "verificationCode",
+            "verification_code", "codeHash", "code_hash");
 
     private final ObjectMapper objectMapper;
 

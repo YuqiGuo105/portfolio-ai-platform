@@ -23,7 +23,8 @@ import java.util.Map;
 public class RiskGateValidator {
 
     public Outcome check(ToolDefinition tool, Map<String, Object> args) {
-        if ("email_otp".equalsIgnoreCase(tool.getConfirmationMethod())) {
+        boolean emailOtp = "email_otp".equalsIgnoreCase(tool.getConfirmationMethod());
+        if (emailOtp) {
             Outcome otp = checkEmailOtp(tool, args);
             if (!otp.allowed()) return otp;
         }
@@ -32,7 +33,7 @@ public class RiskGateValidator {
             return Outcome.ok();
         }
 
-        boolean confirmed = Boolean.TRUE.equals(args.get("_confirmed"));
+        boolean confirmed = emailOtp || Boolean.TRUE.equals(args.get("_confirmed"));
         boolean dryRun = Boolean.TRUE.equals(args.get("dryRun"));
 
         RiskLevel risk = tool.getRiskLevel() == null ? RiskLevel.LOW : tool.getRiskLevel();
@@ -53,11 +54,6 @@ public class RiskGateValidator {
         if (dryRun && tool.isDryRunSupported()) {
             return Outcome.ok();
         }
-        if (!Boolean.TRUE.equals(args.get("_confirmed"))) {
-            return Outcome.fail("Tool " + tool.getName()
-                    + " requires explicit user confirmation before email-OTP execution.");
-        }
-
         Object verificationId = args.get("verificationId");
         if (!(verificationId instanceof String id) || id.isBlank()) {
             return Outcome.fail("Tool " + tool.getName()

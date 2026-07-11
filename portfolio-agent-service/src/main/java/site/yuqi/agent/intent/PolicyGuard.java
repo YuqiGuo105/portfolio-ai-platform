@@ -52,8 +52,8 @@ public class PolicyGuard {
             Map.entry("notification.retry_failed_delivery",Role.ADMIN),
             Map.entry("notification.send_test_notification", Role.ADMIN),
             Map.entry("notification.update_subscription",  Role.ADMIN),
-            Map.entry("notification.request_unsubscribe_verification", Role.ADMIN),
-            Map.entry("notification.unsubscribe_subscriber", Role.ADMIN)
+            Map.entry("subscription.request_unsubscribe_code", Role.VIEWER),
+            Map.entry("subscription.confirm_unsubscribe", Role.VIEWER)
     );
 
     private static final Set<String> ANONYMOUS_READ_TOOLS = Set.of(
@@ -85,9 +85,10 @@ public class PolicyGuard {
                     .build();
         }
 
-        boolean confirm = tool.requiresConfirmation()
+        boolean otpConfirmation = "subscription.confirm_unsubscribe".equals(tool.name());
+        boolean confirm = !otpConfirmation && (tool.requiresConfirmation()
                 || tool.riskLevel() == RiskLevel.RISKY_WRITE
-                || tool.riskLevel() == RiskLevel.DESTRUCTIVE;
+                || tool.riskLevel() == RiskLevel.DESTRUCTIVE);
 
         return PolicyDecision.builder()
                 .allowed(true)
@@ -130,13 +131,19 @@ public class PolicyGuard {
             case ANALYTICS_GET_VISITOR_SUMMARY, ANALYTICS_GET_TOP_PAGES, ANALYTICS_GET_REFERRER_SUMMARY ->
                     "Analyze aggregate analytics from " + args.get("startDate") + " to " + args.get("endDate")
                             + "? For privacy, I will only return aggregate metrics and suppress small buckets.";
-            case NOTIFICATION_REQUEST_UNSUBSCRIBE_VERIFICATION ->
-                    "Send an email verification code before unsubscribing subscriber "
-                            + args.get("subscriberId") + "?";
-            case NOTIFICATION_UNSUBSCRIBE -> "Hard-unsubscribe subscriber " + args.get("subscriberId")
-                    + " using the email verification code? This is destructive; if verification fails, hand off to a human.";
+            case SUBSCRIPTION_REQUEST_UNSUBSCRIBE_CODE ->
+                    "Send an unsubscribe verification code to " + maskEmail(args.get("email")) + "?";
+            case SUBSCRIPTION_CONFIRM_UNSUBSCRIBE ->
+                    "Verify the email code and change the subscription status to UNSUBSCRIBED.";
             default -> "Run " + tool.name() + " with arguments " + args + "?";
         };
+    }
+
+    private static String maskEmail(Object value) {
+        if (!(value instanceof String email) || email.isBlank()) return "the supplied email address";
+        int at = email.indexOf('@');
+        if (at <= 0) return "the supplied email address";
+        return email.charAt(0) + "***" + email.substring(at);
     }
 
     @Data

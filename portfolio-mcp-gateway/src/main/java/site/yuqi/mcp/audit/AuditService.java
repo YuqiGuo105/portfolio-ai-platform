@@ -27,7 +27,8 @@ public class AuditService {
 
     private static final Set<String> REDACT_KEYS = Set.of(
             "apiKey", "api_key", "authorization", "token", "secret", "password",
-            "serviceRoleKey", "service_role_key", "otp");
+            "serviceRoleKey", "service_role_key", "otp", "verificationCode",
+            "verification_code", "codeHash", "code_hash");
 
     private final ObjectMapper objectMapper;
 
@@ -65,8 +66,26 @@ public class AuditService {
         if (in == null) return Map.of();
         Map<String, Object> out = new LinkedHashMap<>();
         for (var e : in.entrySet()) {
-            out.put(e.getKey(), REDACT_KEYS.contains(e.getKey()) ? "***" : e.getValue());
+            out.put(e.getKey(), REDACT_KEYS.contains(e.getKey()) ? "***" : redactValue(e.getValue()));
         }
         return out;
+    }
+
+    @SuppressWarnings("unchecked")
+    private Object redactValue(Object value) {
+        if (value instanceof Map<?, ?> map) {
+            Map<String, Object> nested = new LinkedHashMap<>();
+            map.forEach((key, nestedValue) -> {
+                String name = String.valueOf(key);
+                nested.put(name, REDACT_KEYS.contains(name) ? "***" : redactValue(nestedValue));
+            });
+            return nested;
+        }
+        if (value instanceof Iterable<?> values) {
+            java.util.List<Object> out = new java.util.ArrayList<>();
+            values.forEach(item -> out.add(redactValue(item)));
+            return out;
+        }
+        return value;
     }
 }

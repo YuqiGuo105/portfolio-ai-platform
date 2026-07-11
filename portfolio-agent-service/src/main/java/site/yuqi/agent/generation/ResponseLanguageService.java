@@ -56,4 +56,25 @@ public class ResponseLanguageService {
 
         return candidateAnswer;
     }
+
+    public String alignToLanguage(String language, String candidateAnswer) {
+        if (candidateAnswer == null || candidateAnswer.isBlank()
+                || language == null || language.isBlank() || "en".equalsIgnoreCase(language)) {
+            return candidateAnswer;
+        }
+        String prompt = """
+                Target language (ISO 639-1):
+                %s
+
+                Candidate answer:
+                %s
+                """.formatted(language, candidateAnswer);
+        try {
+            String aligned = generationService.generate(SYSTEM_PROMPT, prompt);
+            return aligned == null || aligned.isBlank() ? candidateAnswer : aligned.trim();
+        } catch (Exception e) {
+            log.warn("Response language alignment failed: {}", e.toString());
+            return candidateAnswer;
+        }
+    }
 }

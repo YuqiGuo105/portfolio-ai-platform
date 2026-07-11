@@ -19,28 +19,26 @@ class RiskGateValidatorTest {
     void setUp() {
         validator = new RiskGateValidator();
         unsubscribeTool = ToolDefinition.builder()
-                .name("notification.unsubscribe_subscriber")
+                .name("subscription.confirm_unsubscribe")
                 .mode(ToolMode.WRITE)
-                .riskLevel(RiskLevel.CRITICAL)
-                .confirmRequired(true)
+                .riskLevel(RiskLevel.HIGH)
+                .confirmRequired(false)
                 .confirmationMethod("email_otp")
                 .build();
     }
 
     @Test
-    void rejectsEmailOtpToolWithoutUserConfirmation() {
+    void acceptsEmailOtpAsTheUserConfirmation() {
         RiskGateValidator.Outcome outcome = validator.check(unsubscribeTool, Map.of(
                 "verificationId", "ver_123",
                 "verificationCode", "123456"));
 
-        assertThat(outcome.allowed()).isFalse();
-        assertThat(outcome.reason()).contains("confirmation");
+        assertThat(outcome.allowed()).isTrue();
     }
 
     @Test
     void rejectsEmailOtpToolWithoutVerificationId() {
         RiskGateValidator.Outcome outcome = validator.check(unsubscribeTool, Map.of(
-                "_confirmed", true,
                 "verificationCode", "123456"));
 
         assertThat(outcome.allowed()).isFalse();
@@ -50,7 +48,6 @@ class RiskGateValidatorTest {
     @Test
     void rejectsInvalidEmailOtpCode() {
         RiskGateValidator.Outcome outcome = validator.check(unsubscribeTool, Map.of(
-                "_confirmed", true,
                 "verificationId", "ver_123",
                 "verificationCode", "abc"));
 
@@ -59,9 +56,8 @@ class RiskGateValidatorTest {
     }
 
     @Test
-    void acceptsConfirmedEmailOtpTool() {
+    void acceptsValidEmailOtpTool() {
         RiskGateValidator.Outcome outcome = validator.check(unsubscribeTool, Map.of(
-                "_confirmed", true,
                 "verificationId", "ver_123",
                 "verificationCode", "123456"));
 

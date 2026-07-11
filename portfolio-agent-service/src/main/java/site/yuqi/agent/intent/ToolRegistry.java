@@ -227,21 +227,21 @@ public class ToolRegistry {
                 Set.of("categories", "frequency")
         ));
         register(new ToolDefinition(
-                "notification.request_unsubscribe_verification",
-                IntentType.NOTIFICATION_REQUEST_UNSUBSCRIBE_VERIFICATION,
-                "Send an email verification code before hard-unsubscribing a subscriber.",
+                "subscription.request_unsubscribe_code",
+                IntentType.SUBSCRIPTION_REQUEST_UNSUBSCRIBE_CODE,
+                "Send a short-lived email verification code before unsubscribing an address. The result does not reveal whether the address is subscribed.",
                 RiskLevel.RISKY_WRITE,
                 true,
-                Set.of("subscriberId"),
-                Set.of("reason")
+                Set.of("email"),
+                Set.of()
         ));
         register(new ToolDefinition(
-                "notification.unsubscribe_subscriber",
-                IntentType.NOTIFICATION_UNSUBSCRIBE,
-                "Hard-unsubscribe a subscriber after email-OTP verification. Requires verificationId and 6-digit verificationCode.",
-                RiskLevel.DESTRUCTIVE,
-                true,
-                Set.of("subscriberId", "verificationId", "verificationCode"),
+                "subscription.confirm_unsubscribe",
+                IntentType.SUBSCRIPTION_CONFIRM_UNSUBSCRIBE,
+                "Verify the emailed code and change subscription status to UNSUBSCRIBED. Never deletes subscriber data.",
+                RiskLevel.RISKY_WRITE,
+                false,
+                Set.of("verificationId", "verificationCode"),
                 Set.of()
         ));
 

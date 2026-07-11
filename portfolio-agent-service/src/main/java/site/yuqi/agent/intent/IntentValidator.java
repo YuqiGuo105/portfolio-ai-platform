@@ -111,7 +111,8 @@ public class IntentValidator {
                     .build();
         }
 
-        if (tool.riskLevel() != RiskLevel.READ_ONLY && !intent.requiresConfirmation()) {
+        boolean otpConfirmation = "subscription.confirm_unsubscribe".equals(tool.name());
+        if (tool.riskLevel() != RiskLevel.READ_ONLY && !otpConfirmation && !intent.requiresConfirmation()) {
             return ValidationResult.builder()
                     .status(Status.REJECT)
                     .message("Non-read-only tool " + tool.name() + " must set requiresConfirmation=true.")

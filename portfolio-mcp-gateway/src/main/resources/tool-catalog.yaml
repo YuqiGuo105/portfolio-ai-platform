@@ -380,38 +380,35 @@ tools:
       method: PATCH
       path: /api/admin/subscribers/{subscriberId}/preferences
 
-  - name: notification.request_unsubscribe_verification
+  - name: subscription.request_unsubscribe_code
     mode: WRITE
-    description: Send an email verification code before hard-unsubscribing a subscriber.
-    requiredRole: ADMIN
+    description: Send a short-lived email verification code before unsubscribing an address.
+    requiredRole: VIEWER
     riskLevel: HIGH
     dryRunSupported: false
     confirmRequired: true
     note: |
-      This is the first leg of the unsubscribe workflow. It sends a short-lived
-      verification code to the subscriber's email address. The destructive
-      unsubscribe tool must receive verificationId + verificationCode.
+      This public, narrowly scoped tool is the first leg of the unsubscribe
+      workflow. Its response never reveals whether the email is subscribed.
     parameters:
-      - { name: subscriberId, type: string, required: true }
-      - { name: reason,       type: string, required: false }
+      - { name: email, type: string, required: true }
     endpoint:
       target: notification
       method: POST
-      path: /api/admin/subscribers/{subscriberId}/unsubscribe-verification
+      path: /api/subscriptions/unsubscribe-verification
 
-  - name: notification.unsubscribe_subscriber
+  - name: subscription.confirm_unsubscribe
     mode: WRITE
-    description: Hard-unsubscribe a subscriber after email-OTP verification. Human handoff/review is required if verification cannot be completed.
-    requiredRole: ADMIN
-    riskLevel: CRITICAL
+    description: Verify the emailed code and change subscription status to UNSUBSCRIBED. Never deletes subscriber data.
+    requiredRole: VIEWER
+    riskLevel: HIGH
     dryRunSupported: false
-    confirmRequired: true
+    confirmRequired: false
     confirmationMethod: email_otp
     parameters:
-      - { name: subscriberId,      type: string, required: true }
       - { name: verificationId,   type: string, required: true }
       - { name: verificationCode, type: string, required: true, description: "6-digit code from the subscriber email verification flow." }
     endpoint:
       target: notification
-      method: DELETE
-      path: /api/admin/subscribers/{subscriberId}
+      method: POST
+      path: /api/subscriptions/unsubscribe/confirm

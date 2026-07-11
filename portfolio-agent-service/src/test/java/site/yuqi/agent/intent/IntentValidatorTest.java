@@ -115,6 +115,21 @@ class IntentValidatorTest {
     }
 
     @Test
+    void executesOtpConfirmationWithoutASecondConfirmationPrompt() {
+        IntentResult r = new IntentResult(
+                IntentType.SUBSCRIPTION_CONFIRM_UNSUBSCRIBE,
+                "subscription.confirm_unsubscribe", 0.98,
+                "zh", "confirm unsubscribe",
+                Map.of("verificationId", "verification-123", "verificationCode", "123456"),
+                RiskLevel.RISKY_WRITE, false, List.of(), null);
+
+        IntentValidator.ValidationResult v = validator.validate(r);
+
+        assertThat(v.getStatus()).isEqualTo(IntentValidator.Status.EXECUTE);
+        assertThat(v.getTool().requiresConfirmation()).isFalse();
+    }
+
+    @Test
     void generalChatPassesThrough() {
         IntentResult r = new IntentResult(
                 IntentType.GENERAL_CHAT, null, 0.5,

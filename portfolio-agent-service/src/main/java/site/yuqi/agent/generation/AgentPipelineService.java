@@ -436,7 +436,10 @@ public class AgentPipelineService {
         sink.next(stageEvent("tool_result", "Tool response received",
                 intentResponsePayload(response)));
 
-        String answer = alignAnswer(question, renderIntentResponse(request, response));
+        String rendered = renderIntentResponse(request, response);
+        String answer = isOtpConfirmation(response)
+                ? responseLanguageService.alignToLanguage(response.getIntent().language(), rendered)
+                : alignAnswer(question, rendered);
         SafetyCheckResult outputSafety = safetyService.checkOutput(answer, runId);
         if (outputSafety.verdict() == SafetyVerdict.BLOCK) {
             log.warn("Tool answer blocked for session={}", request.getSessionId());
@@ -513,6 +516,12 @@ public class AgentPipelineService {
 
     private String renderToolAnswer(AgentStreamRequest request, IntentResponse response) {
         Object result = response.getResult();
+        if (isOtpConfirmation(response)) {
+            if (result instanceof Map<?, ?> map && map.get("message") != null) {
+                return String.valueOf(map.get("message"));
+            }
+            return "The subscription status is now UNSUBSCRIBED.";
+        }
         String prompt = """
                 User question:
                 %s
@@ -535,6 +544,12 @@ public class AgentPipelineService {
             log.warn("Tool answer rendering failed for session={}: {}", request.getSessionId(), e.toString());
         }
         return "Tool result: " + result;
+    }
+
+    private boolean isOtpConfirmation(IntentResponse response) {
+        return response != null
+                && response.getIntent() != null
+                && "subscription.confirm_unsubscribe".equals(response.getIntent().targetTool());
     }
 
     private String requestHandoffConfirmation(FluxSink<Map<String, Object>> sink,
