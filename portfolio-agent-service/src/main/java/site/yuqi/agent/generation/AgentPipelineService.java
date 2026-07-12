@@ -194,8 +194,10 @@ public class AgentPipelineService {
                     }
                     case CLARIFY -> {
                         emitRunCompleted(runId, pipelineStart, "clarify");
-                        String answer = alignAnswer(question,
-                                nonBlank(routeDecision.message(), "Could you clarify what you need?"));
+                        String candidate = nonBlank(routeDecision.message(), "Could you clarify what you need?");
+                        String answer = plannerAlreadyLocalized(routeDecision)
+                                ? candidate
+                                : alignAnswer(question, candidate);
                         memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "CLARIFY", (Map<String, Object>) null);
                         sink.next(answerFinalEvent(answer));
                         sink.next(doneEvent());
@@ -279,7 +281,7 @@ public class AgentPipelineService {
                         })
                         .doOnComplete(() -> {
                             String fullAnswer = answerBuf.toString();
-                            String finalAnswer = alignAnswer(question, fullAnswer);
+                            String finalAnswer = fullAnswer.trim();
                             int generationLatency = (int) (System.currentTimeMillis() - generationStart);
 
                             // Emit: model_call.completed
@@ -437,11 +439,14 @@ public class AgentPipelineService {
                 intentResponsePayload(response)));
 
         String rendered = renderIntentResponse(request, response);
-        String answer = isOtpConfirmation(response)
-                ? responseLanguageService.alignToLanguage(response.getIntent().language(), rendered)
-                : alignAnswer(question, rendered);
-        SafetyCheckResult outputSafety = safetyService.checkOutput(answer, runId);
-        if (outputSafety.verdict() == SafetyVerdict.BLOCK) {
+        boolean trustedStructuredResponse = isTrustedStructuredToolResponse(response);
+        String answer = trustedStructuredResponse
+            ? rendered
+            : alignAnswer(question, rendered);
+        SafetyVerdict outputVerdict = trustedStructuredResponse
+                ? SafetyVerdict.PASS
+                : safetyService.checkOutput(answer, runId).verdict();
+        if (outputVerdict == SafetyVerdict.BLOCK) {
             log.warn("Tool answer blocked for session={}", request.getSessionId());
             emitRunCompleted(runId, pipelineStart, "blocked");
             String blocked = alignAnswer(question, "I apologize, but I cannot provide that response.");
@@ -516,11 +521,28 @@ public class AgentPipelineService {
 
     private String renderToolAnswer(AgentStreamRequest request, IntentResponse response) {
         Object result = response.getResult();
-        if (isOtpConfirmation(response)) {
+        String language = response.getIntent() != null ? response.getIntent().language() : "en";
+        if (result == null) {
+            return isChinese(language) ? "已完成。" : "Done.";
+        }
+        if (isSubscriptionOtpWorkflow(response)) {
             if (result instanceof Map<?, ?> map && map.get("message") != null) {
                 return String.valueOf(map.get("message"));
             }
-            return "The subscription status is now UNSUBSCRIBED.";
+            if ("subscription.confirm_unsubscribe".equals(response.getIntent().targetTool())) {
+                return isChinese(language)
+                        ? "已退订成功。"
+                        : "The subscription status is now UNSUBSCRIBED.";
+            }
+            return isChinese(language)
+                    ? "如果该邮箱存在有效订阅，验证码已发送。"
+                    : "If this address has an active subscription, a verification code has been sent.";
+        }
+        if (isDirectRenderable(result)) {
+            String compact = compactToolResult(result);
+            return isChinese(language)
+                    ? "已完成。结果：\n" + compact
+                    : "Done. Result:\n" + compact;
         }
         String prompt = """
                 User question:
@@ -546,10 +568,64 @@ public class AgentPipelineService {
         return "Tool result: " + result;
     }
 
-    private boolean isOtpConfirmation(IntentResponse response) {
+    private boolean isTrustedStructuredToolResponse(IntentResponse response) {
+        return response != null
+                && "OK".equals(response.getType())
+                && response.getIntent() != null
+                && isDirectRenderable(response.getResult());
+    }
+
+    private boolean isDirectRenderable(Object result) {
+        return result == null
+                || result instanceof Map<?, ?>
+                || result instanceof Iterable<?>
+                || result instanceof String
+                || result instanceof Number
+                || result instanceof Boolean;
+    }
+
+    private String compactToolResult(Object result) {
+        if (result == null) return "";
+        if (result instanceof Map<?, ?> map) {
+            return map.entrySet().stream()
+                    .limit(10)
+                    .map(e -> String.valueOf(e.getKey()) + ": " + compactValue(e.getValue()))
+                    .collect(Collectors.joining("\n"));
+        }
+        if (result instanceof Iterable<?> iterable) {
+            StringBuilder sb = new StringBuilder();
+            int count = 0;
+            for (Object item : iterable) {
+                if (count++ >= 8) break;
+                sb.append("- ").append(compactValue(item)).append("\n");
+            }
+            return sb.toString().trim();
+        }
+        return compactValue(result);
+    }
+
+    private String compactValue(Object value) {
+        if (value == null) return "";
+        String text = String.valueOf(value).replaceAll("\\s+", " ").trim();
+        return text.length() <= 500 ? text : text.substring(0, 497) + "...";
+    }
+
+    private boolean isChinese(String language) {
+        return language != null && language.toLowerCase().startsWith("zh");
+    }
+
+    private boolean isSubscriptionOtpWorkflow(IntentResponse response) {
         return response != null
                 && response.getIntent() != null
-                && "subscription.confirm_unsubscribe".equals(response.getIntent().targetTool());
+                && ("subscription.request_unsubscribe_code".equals(response.getIntent().targetTool())
+                    || "subscription.confirm_unsubscribe".equals(response.getIntent().targetTool()));
+    }
+
+    private boolean plannerAlreadyLocalized(AgentRouteDecision decision) {
+        return decision != null
+                && decision.intent() != null
+                && decision.intent().clarificationQuestion() != null
+                && !decision.intent().clarificationQuestion().isBlank();
     }
 
     private String requestHandoffConfirmation(FluxSink<Map<String, Object>> sink,

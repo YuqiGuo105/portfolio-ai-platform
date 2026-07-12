@@ -98,10 +98,11 @@ jobs:
             --service-account="${RUNTIME_SA_EMAIL}" \
             --allow-unauthenticated \
             --port=8090 \
-            --min-instances=0 \
+            --min-instances=1 \
             --max-instances=2 \
             --memory=512Mi \
             --cpu=1 \
+            --cpu-boost \
             --timeout=120 \
             --set-env-vars="^|^SPRING_PROFILES_ACTIVE=prod|ALLOWED_ORIGINS=${ALLOWED_ORIGINS}|MCP_GATEWAY_BASE_URL=${{ vars.MCP_GATEWAY_BASE_URL }}|AGENT_INTENT_PROVIDER=${{ vars.AGENT_INTENT_PROVIDER }}|OPENAI_INTENT_MODEL=${{ vars.OPENAI_INTENT_MODEL }}|OPENAI_INTENT_ESCALATION_MODEL=${{ vars.OPENAI_INTENT_ESCALATION_MODEL }}|GEMINI_INTENT_MODEL=${{ vars.GEMINI_INTENT_MODEL }}|GEMINI_INTENT_ESCALATION_MODEL=${{ vars.GEMINI_INTENT_ESCALATION_MODEL }}|AGENT_BUDGET_ENABLED=${{ vars.AGENT_BUDGET_ENABLED }}|AGENT_CHAT_DAILY_BUDGET_USD=${{ vars.AGENT_CHAT_DAILY_BUDGET_USD }}|AGENT_CHAT_REQUEST_RESERVATION_USD=${{ vars.AGENT_CHAT_REQUEST_RESERVATION_USD }}|AGENT_BUDGET_ZONE=${{ vars.AGENT_BUDGET_ZONE }}" \
             --remove-secrets="AIVEN_PG_PASSWORD" \
