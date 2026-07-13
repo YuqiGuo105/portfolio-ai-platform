@@ -114,8 +114,17 @@ class AgentPipelineServiceRouteTest {
 
         assertThat(events).isNotNull();
         assertThat(events).extracting(event -> event.get("stage"))
-                .contains("routing", "tool_result", "answer_final", "done")
+                .contains("routing", "tool_call_start", "tool_call_result", "tool_result", "answer_final", "done")
                 .doesNotContain("knowledge_retrieval");
+        Map<String, Object> completedRouting = events.stream()
+                .filter(event -> "routing".equals(event.get("stage")))
+                .filter(event -> "completed".equals(event.get("status")))
+                .findFirst()
+                .orElseThrow();
+        assertThat(completedRouting)
+                .containsEntry("final", true)
+                .containsKey("durationMs")
+                .containsKey("stageId");
         verify(knowledgeClient, never()).search(anyString(), anyInt());
     }
 

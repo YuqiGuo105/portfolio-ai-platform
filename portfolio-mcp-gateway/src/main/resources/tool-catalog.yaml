@@ -384,9 +384,9 @@ tools:
     mode: WRITE
     description: Send a short-lived email verification code before unsubscribing an address.
     requiredRole: VIEWER
-    riskLevel: HIGH
+    riskLevel: LOW
     dryRunSupported: false
-    confirmRequired: true
+    confirmRequired: false
     note: |
       This public, narrowly scoped tool is the first leg of the unsubscribe
       workflow. Its response never reveals whether the email is subscribed.

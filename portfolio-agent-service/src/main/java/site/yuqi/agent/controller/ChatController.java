@@ -14,6 +14,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
+import reactor.core.scheduler.Schedulers;
 import site.yuqi.agent.conversation.ConversationKey;
 import site.yuqi.agent.model.ChatRequest;
 import site.yuqi.agent.model.ChatStreamEvent;
@@ -69,6 +70,7 @@ public class ChatController {
         SseEmitter emitter = new SseEmitter(sseTimeoutMs);
 
         Disposable subscription = workflowRunner.run(request)
+                .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
                         event -> safeSend(emitter, event),
                         err -> {

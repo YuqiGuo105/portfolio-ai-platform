@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
+import reactor.core.publisher.Mono;
 import reactor.core.scheduler.Schedulers;
 import site.yuqi.agent.budget.BudgetDecision;
 import site.yuqi.agent.budget.ChatBudgetService;
@@ -18,6 +19,7 @@ import site.yuqi.agent.intent.IntentClassificationException;
 import site.yuqi.agent.intent.IntentOrchestrator;
 import site.yuqi.agent.intent.IntentRequest;
 import site.yuqi.agent.intent.IntentResponse;
+import site.yuqi.agent.intent.IntentResult;
 import site.yuqi.agent.model.AgentStreamRequest;
 import site.yuqi.agent.observability.EventRecorder;
 import site.yuqi.agent.safety.SafetyCheckResult;
@@ -31,6 +33,7 @@ import java.util.List;
 import java.util.LinkedHashMap;
 import java.util.Map;
 import java.util.UUID;
+import java.util.function.Supplier;
 import java.util.stream.Collectors;
 
 /**
@@ -66,6 +69,8 @@ public class AgentPipelineService {
             - Do not switch languages just because context, retrieved chunks, or recent turns use another language.
             - When referencing projects or blog posts, mention their titles.
             - For technical questions about Yuqi's work, provide specific details from context.
+            - Follow the planner-provided response policy and constraints. For public-context estimates, clearly
+              label the result as an estimate, state material assumptions, and never claim access to private records.
             """;
 
     private static final String TOOL_ANSWER_SYSTEM_PROMPT = """
@@ -129,38 +134,14 @@ public class AgentPipelineService {
                                 "dailyBudget", budgetPayload(budgetDecision)))
                         .build());
 
-                // Stage 1: Input safety check
-                sink.next(stageEvent("safety_check", "Checking input safety..."));
-                SafetyCheckResult inputSafety = safetyService.checkInput(question, runId);
-                if (inputSafety.verdict() == SafetyVerdict.BLOCK) {
-                    log.warn("Input blocked for session={}: {}", sessionId, inputSafety.reason());
-
-                    // Emit: answer.blocked
-                    eventRecorder.record(PlatformEvent.now(EventTypes.ANSWER_BLOCKED)
-                            .runId(runId)
-                            .service("agent-runtime-service")
-                            .status("blocked")
-                            .payload(Map.of(
-                                    "blockStage", "input",
-                                    "reason", inputSafety.reason() != null ? inputSafety.reason() : "safety_block",
-                                    "riskFlags", List.of("prompt_injection"),
-                                    "fallbackAction", "safe_refusal"))
-                            .build());
-
-                    // Emit: agent_run.completed
-                    emitRunCompleted(runId, pipelineStart, "blocked");
-
-                    String answer = alignAnswer(question, "I'm sorry, I can't help with that request.");
-                    memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "BLOCKED", (Map<String, Object>) null);
-                    sink.next(answerFinalEvent(answer));
-                    sink.next(doneEvent());
-                    sink.complete();
-                    return;
-                }
-
                 IntentRequest intentRequest = buildIntentRequest(request, question, sessionId, plannerContext);
 
                 if (request.getPendingActionId() != null && !request.getPendingActionId().isBlank()) {
+                    SafetyCheckResult inputSafety = checkInputSafety(sink, question, runId);
+                    if (inputSafety.verdict() == SafetyVerdict.BLOCK) {
+                        handleBlockedInput(sink, request, question, sessionId, runId, pipelineStart, inputSafety);
+                        return;
+                    }
                     sink.next(stageEvent("tool_execution", "Completing confirmed action..."));
                     IntentResponse response = intentOrchestrator.handle(intentRequest);
                     handleToolResponse(sink, request, response, runId, pipelineStart, question);
@@ -169,26 +150,60 @@ public class AgentPipelineService {
 
                 boolean confirmMode = "CONFIRM_HANDOFF".equals(request.getMode());
                 if (confirmMode) {
+                    SafetyCheckResult inputSafety = checkInputSafety(sink, question, runId);
+                    if (inputSafety.verdict() == SafetyVerdict.BLOCK) {
+                        handleBlockedInput(sink, request, question, sessionId, runId, pipelineStart, inputSafety);
+                        return;
+                    }
                     completeHandoff(sink, request, question, runId, pipelineStart);
                     return;
                 }
 
-                // Stage 1b: LLM-owned route planning
-                sink.next(stageEvent("routing", "Routing request..."));
-                AgentRouteDecision routeDecision;
-                try {
-                    routeDecision = routePlanner.plan(intentRequest);
-                } catch (IntentClassificationException e) {
-                    routeDecision = routePlanner.classificationError(e);
+                // Input safety and intent routing are independent. Running them
+                // concurrently removes one full model round trip from the critical path.
+                String safetyStageId = stageId(runId, "safety_check");
+                String routingStageId = stageId(runId, "routing");
+                sink.next(stageStarted("safety_check", "Checking request safety...", safetyStageId));
+                sink.next(stageStarted("routing", "Understanding your request...", routingStageId));
+
+                var preflight = Mono.zip(
+                                Mono.fromCallable(() -> timed(() -> safetyService.checkInput(question, runId)))
+                                        .subscribeOn(Schedulers.boundedElastic()),
+                                Mono.fromCallable(() -> timed(() -> planRoute(intentRequest)))
+                                        .subscribeOn(Schedulers.boundedElastic()))
+                        .block();
+                if (preflight == null) {
+                    throw new IllegalStateException("Preflight checks did not complete");
                 }
 
-                sink.next(stageEvent("routing", "Route selected",
-                        routePayload(routeDecision)));
+                TimedResult<SafetyCheckResult> safetyResult = preflight.getT1();
+                TimedResult<AgentRouteDecision> routingResult = preflight.getT2();
+                SafetyCheckResult inputSafety = safetyResult.value();
+                AgentRouteDecision routeDecision = routingResult.value();
+
+                sink.next(stageCompleted("safety_check", "Request safety checked", safetyStageId,
+                        safetyResult.durationMs(), Map.of("verdict", inputSafety.verdict().name())));
+                sink.next(stageCompleted("routing",
+                        progressMessage(routeDecision.intent(), "Request understood"), routingStageId,
+                        routingResult.durationMs(), routePayload(routeDecision)));
+
+                if (inputSafety.verdict() == SafetyVerdict.BLOCK) {
+                    handleBlockedInput(sink, request, question, sessionId, runId, pipelineStart, inputSafety);
+                    return;
+                }
 
                 switch (routeDecision.route()) {
                     case MCP_TOOL -> {
+                        String toolName = routeDecision.intent() != null
+                                ? routeDecision.intent().targetTool()
+                                : "unknown";
+                        String callId = UUID.randomUUID().toString();
+                        long toolStart = System.currentTimeMillis();
+                        sink.next(toolCallStarted(callId, toolName));
                         IntentResponse response = intentOrchestrator.handlePreclassified(
                                 intentRequest, routeDecision.intent());
+                        sink.next(toolCallCompleted(callId, toolName,
+                                (int) (System.currentTimeMillis() - toolStart), response));
                         handleToolResponse(sink, request, response, runId, pipelineStart, question);
                         return;
                     }
@@ -228,7 +243,10 @@ public class AgentPipelineService {
                 }
 
                 // Stage 2: Knowledge retrieval
-                sink.next(stageEvent("knowledge_retrieval", "Searching knowledge base..."));
+                String retrievalStageId = stageId(runId, "knowledge_retrieval");
+                sink.next(stageStarted("knowledge_retrieval",
+                        progressMessage(routeDecision.intent(), "Searching public portfolio context..."),
+                        retrievalStageId));
                 long retrievalStart = System.currentTimeMillis();
                 KnowledgeSearchResponse searchResponse = knowledgeClient.search(question, 6);
                 int retrievalLatency = (int) (System.currentTimeMillis() - retrievalStart);
@@ -263,13 +281,15 @@ public class AgentPipelineService {
                                 "zeroHit", chunkCount == 0))
                         .build());
 
-                sink.next(stageEvent("knowledge_retrieval",
+                sink.next(stageCompleted("knowledge_retrieval",
                         "Found " + chunkCount + " relevant chunks",
-                        Map.of("chunksFound", chunkCount, "final", true)));
+                        retrievalStageId, retrievalLatency, Map.of("chunksFound", chunkCount)));
 
                 // Stage 3: Build prompt with context + conversation history
-                sink.next(stageEvent("generating", "Generating answer..."));
-                String userPrompt = buildUserPrompt(question, contextChunks, request, plannerContext);
+                String generationStageId = stageId(runId, "generating");
+                sink.next(stageStarted("generating", "Preparing a grounded answer...", generationStageId));
+                String userPrompt = buildUserPrompt(
+                        question, contextChunks, request, plannerContext, routeDecision.intent());
 
                 // Stage 4: Stream answer tokens
                 long generationStart = System.currentTimeMillis();
@@ -283,6 +303,8 @@ public class AgentPipelineService {
                             String fullAnswer = answerBuf.toString();
                             String finalAnswer = fullAnswer.trim();
                             int generationLatency = (int) (System.currentTimeMillis() - generationStart);
+                            sink.next(stageCompleted("generating", "Answer draft completed", generationStageId,
+                                    generationLatency, Map.of("outputLength", fullAnswer.length())));
 
                             // Emit: model_call.completed
                             eventRecorder.record(PlatformEvent.now(EventTypes.MODEL_CALL_COMPLETED)
@@ -299,7 +321,14 @@ public class AgentPipelineService {
                                     .build());
 
                             // Stage 5: Output safety check
+                            String outputSafetyStageId = stageId(runId, "output_safety");
+                            sink.next(stageStarted("output_safety", "Checking the answer...",
+                                    outputSafetyStageId));
+                            long outputSafetyStart = System.currentTimeMillis();
                             SafetyCheckResult outputSafety = safetyService.checkOutput(finalAnswer, runId);
+                            sink.next(stageCompleted("output_safety", "Answer checked", outputSafetyStageId,
+                                    (int) (System.currentTimeMillis() - outputSafetyStart),
+                                    Map.of("verdict", outputSafety.verdict().name())));
                             if (outputSafety.verdict() == SafetyVerdict.BLOCK) {
                                 log.warn("Output blocked for session={}", sessionId);
 
@@ -345,6 +374,9 @@ public class AgentPipelineService {
                         })
                         .doOnError(e -> {
                             log.error("Generation failed for session={}", sessionId, e);
+                            sink.next(stageCompleted("generating", "Answer generation failed", generationStageId,
+                                    (int) (System.currentTimeMillis() - generationStart),
+                                    Map.of("status", "failed")));
 
                             // Emit: agent_run.completed (failed)
                             emitRunCompleted(runId, pipelineStart, "failed");
@@ -370,6 +402,63 @@ public class AgentPipelineService {
                 sink.complete();
             }
         });
+    }
+
+    private SafetyCheckResult checkInputSafety(FluxSink<Map<String, Object>> sink,
+                                               String question,
+                                               UUID runId) {
+        String stageId = stageId(runId, "safety_check");
+        sink.next(stageStarted("safety_check", "Checking request safety...", stageId));
+        long start = System.currentTimeMillis();
+        SafetyCheckResult result = safetyService.checkInput(question, runId);
+        sink.next(stageCompleted("safety_check", "Request safety checked", stageId,
+                (int) (System.currentTimeMillis() - start),
+                Map.of("verdict", result.verdict().name())));
+        return result;
+    }
+
+    private AgentRouteDecision planRoute(IntentRequest intentRequest) {
+        try {
+            return routePlanner.plan(intentRequest);
+        } catch (IntentClassificationException e) {
+            return routePlanner.classificationError(e);
+        }
+    }
+
+    private void handleBlockedInput(FluxSink<Map<String, Object>> sink,
+                                    AgentStreamRequest request,
+                                    String question,
+                                    String sessionId,
+                                    UUID runId,
+                                    long pipelineStart,
+                                    SafetyCheckResult inputSafety) {
+        log.warn("Input blocked for session={}: {}", sessionId, inputSafety.reason());
+        eventRecorder.record(PlatformEvent.now(EventTypes.ANSWER_BLOCKED)
+                .runId(runId)
+                .service("agent-runtime-service")
+                .status("blocked")
+                .payload(Map.of(
+                        "blockStage", "input",
+                        "reason", inputSafety.reason() != null ? inputSafety.reason() : "safety_block",
+                        "fallbackAction", "safe_refusal"))
+                .build());
+        emitRunCompleted(runId, pipelineStart, "blocked");
+
+        String answer = alignAnswer(question, "I'm sorry, I can't help with that request.");
+        memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
+                "BLOCKED", (Map<String, Object>) null);
+        sink.next(answerFinalEvent(answer));
+        sink.next(doneEvent());
+        sink.complete();
+    }
+
+    private static <T> TimedResult<T> timed(Supplier<T> operation) {
+        long start = System.currentTimeMillis();
+        T value = operation.get();
+        return new TimedResult<>(value, (int) (System.currentTimeMillis() - start));
+    }
+
+    private record TimedResult<T>(T value, int durationMs) {
     }
 
     private void emitRunCompleted(UUID runId, long pipelineStart, String finalStatus) {
@@ -417,6 +506,10 @@ public class AgentPipelineService {
             }
             payload.put("confidence", decision.intent().confidence());
             payload.put("requiresConfirmation", decision.intent().requiresConfirmation());
+            payload.put("responsePolicy", decision.intent().responsePolicy());
+            if (!decision.intent().responseConstraints().isEmpty()) {
+                payload.put("responseConstraints", decision.intent().responseConstraints());
+            }
         }
         return payload;
     }
@@ -665,7 +758,8 @@ public class AgentPipelineService {
     private String buildUserPrompt(String question,
                                    String context,
                                    AgentStreamRequest request,
-                                   PlannerContext plannerContext) {
+                                   PlannerContext plannerContext,
+                                   IntentResult intent) {
         StringBuilder sb = new StringBuilder();
 
         // Add page context if available
@@ -713,6 +807,15 @@ public class AgentPipelineService {
             sb.append("\n");
         }
 
+        if (intent != null) {
+            sb.append("## Planner Response Policy\n");
+            sb.append("Policy: ").append(intent.responsePolicy()).append("\n");
+            if (!intent.responseConstraints().isEmpty()) {
+                sb.append("Constraints: ").append(intent.responseConstraints()).append("\n");
+            }
+            sb.append("Apply these constraints to the answer without mentioning internal policy names.\n\n");
+        }
+
         sb.append("## Output Language Rule\n");
         sb.append("Detect the language of the current Question and write the final answer in that same language. ");
         sb.append("Use retrieved context only for facts; do not copy its language if it differs from the Question.\n\n");
@@ -723,6 +826,12 @@ public class AgentPipelineService {
         return sb.toString();
     }
 
+    private static String progressMessage(IntentResult intent, String fallback) {
+        return intent == null || intent.progressMessage() == null || intent.progressMessage().isBlank()
+                ? fallback
+                : intent.progressMessage();
+    }
+
     // --- SSE event builders (match ChatWidget expected format) ---
 
     private Map<String, Object> stageEvent(String stage, String message) {
@@ -731,6 +840,65 @@ public class AgentPipelineService {
 
     private Map<String, Object> stageEvent(String stage, String message, Map<String, Object> payload) {
         return Map.of("stage", stage, "message", message, "payload", payload);
+    }
+
+    private Map<String, Object> stageStarted(String stage, String message, String stageId) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("stage", stage);
+        event.put("stageId", stageId);
+        event.put("groupKey", stageId);
+        event.put("status", "started");
+        event.put("startedAt", System.currentTimeMillis());
+        event.put("message", message);
+        return event;
+    }
+
+    private Map<String, Object> stageCompleted(String stage,
+                                               String message,
+                                               String stageId,
+                                               int durationMs,
+                                               Map<String, Object> payload) {
+        Map<String, Object> event = new LinkedHashMap<>();
+        event.put("stage", stage);
+        event.put("stageId", stageId);
+        event.put("groupKey", stageId);
+        event.put("status", "completed");
+        event.put("final", true);
+        event.put("completedAt", System.currentTimeMillis());
+        event.put("durationMs", durationMs);
+        event.put("message", message);
+        event.put("payload", payload == null ? Map.of() : payload);
+        return event;
+    }
+
+    private Map<String, Object> toolCallStarted(String callId, String toolName) {
+        return Map.of(
+                "stage", "tool_call_start",
+                "status", "started",
+                "message", "Calling " + nonBlank(toolName, "tool"),
+                "payload", Map.of(
+                        "callId", callId,
+                        "toolName", nonBlank(toolName, "unknown")));
+    }
+
+    private Map<String, Object> toolCallCompleted(String callId,
+                                                  String toolName,
+                                                  int latencyMs,
+                                                  IntentResponse response) {
+        return Map.of(
+                "stage", "tool_call_result",
+                "status", "completed",
+                "final", true,
+                "message", "Tool call completed",
+                "payload", Map.of(
+                        "callId", callId,
+                        "toolName", nonBlank(toolName, "unknown"),
+                        "latencyMs", latencyMs,
+                        "status", response == null ? "error" : response.getType()));
+    }
+
+    private static String stageId(UUID runId, String stage) {
+        return runId + ":" + stage;
     }
 
     private Map<String, Object> answerDeltaEvent(String delta) {

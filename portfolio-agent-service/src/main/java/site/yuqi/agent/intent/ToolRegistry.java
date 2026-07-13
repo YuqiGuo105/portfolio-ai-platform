@@ -230,8 +230,8 @@ public class ToolRegistry {
                 "subscription.request_unsubscribe_code",
                 IntentType.SUBSCRIPTION_REQUEST_UNSUBSCRIBE_CODE,
                 "Send a short-lived email verification code before unsubscribing an address. The result does not reveal whether the address is subscribed.",
-                RiskLevel.RISKY_WRITE,
-                true,
+                RiskLevel.SAFE_WRITE,
+                false,
                 Set.of("email"),
                 Set.of()
         ));

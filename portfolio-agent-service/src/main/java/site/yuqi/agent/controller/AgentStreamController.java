@@ -12,6 +12,7 @@ import org.springframework.web.bind.annotation.RequestMapping;
 import org.springframework.web.bind.annotation.RestController;
 import org.springframework.web.servlet.mvc.method.annotation.SseEmitter;
 import reactor.core.Disposable;
+import reactor.core.scheduler.Schedulers;
 import site.yuqi.agent.conversation.ConversationKey;
 import site.yuqi.agent.generation.AgentPipelineService;
 import site.yuqi.agent.model.AgentStreamRequest;
@@ -63,7 +64,11 @@ public class AgentStreamController {
 
         SseEmitter emitter = new SseEmitter(sseTimeoutMs);
 
+        // Subscribe off the servlet request thread so this method can return the
+        // emitter before blocking model and downstream calls begin. Otherwise
+        // early progress events are buffered and appear to arrive at once.
         Disposable subscription = pipelineService.runPipeline(request)
+                .subscribeOn(Schedulers.boundedElastic())
                 .subscribe(
                         event -> safeSend(emitter, event),
                         err -> {

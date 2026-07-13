@@ -49,16 +49,15 @@ class PolicyGuardAnalyticsTest {
     }
 
     @Test
-    void viewerMustConfirmSendingCodeButOtpConfirmsTheStatusChange() {
-        IntentRequest viewer = IntentRequest.builder()
+    void anonymousCanRequestCodeAndOtpConfirmsTheStatusChange() {
+        IntentRequest anonymous = IntentRequest.builder()
                 .sessionId("s1")
                 .utterance("unsubscribe")
-                .userRoles("VIEWER")
                 .build();
         ToolDefinition requestCode = new ToolDefinition(
                 "subscription.request_unsubscribe_code",
                 IntentType.SUBSCRIPTION_REQUEST_UNSUBSCRIBE_CODE,
-                "Send code", RiskLevel.RISKY_WRITE, true,
+                "Send code", RiskLevel.SAFE_WRITE, false,
                 Set.of("email"), Set.of());
         ToolDefinition confirm = new ToolDefinition(
                 "subscription.confirm_unsubscribe",
@@ -67,12 +66,12 @@ class PolicyGuardAnalyticsTest {
                 Set.of("verificationId", "verificationCode"), Set.of());
 
         PolicyGuard.PolicyDecision requestDecision = guard.check(
-                requestCode, Map.of("email", "a@example.com"), viewer);
+                requestCode, Map.of("email", "a@example.com"), anonymous);
         PolicyGuard.PolicyDecision confirmDecision = guard.check(
-                confirm, Map.of("verificationId", "v1", "verificationCode", "123456"), viewer);
+                confirm, Map.of("verificationId", "v1", "verificationCode", "123456"), anonymous);
 
         assertThat(requestDecision.isAllowed()).isTrue();
-        assertThat(requestDecision.isRequiresConfirmation()).isTrue();
+        assertThat(requestDecision.isRequiresConfirmation()).isFalse();
         assertThat(requestDecision.getPreview()).doesNotContain("a@example.com");
         assertThat(confirmDecision.isAllowed()).isTrue();
         assertThat(confirmDecision.isRequiresConfirmation()).isFalse();

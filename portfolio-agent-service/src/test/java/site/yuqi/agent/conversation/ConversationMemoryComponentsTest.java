@@ -127,7 +127,7 @@ class ConversationMemoryComponentsTest {
                 IntentType.SUBSCRIPTION_REQUEST_UNSUBSCRIBE_CODE,
                 "subscription.request_unsubscribe_code", 0.99,
                 "en", null, Map.of("email", "a@example.com"),
-                RiskLevel.RISKY_WRITE, true, List.of(), null);
+                RiskLevel.SAFE_WRITE, false, List.of(), null);
         writer.writeTurnPair("conv-1", "unsubscribe a@example.com", "Code sent", "OK",
                 IntentResponse.ok(requestIntent, Map.of("verificationId", "verification-123")));
 

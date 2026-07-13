@@ -164,9 +164,13 @@ public class OpenAiIntentClassifier implements IntentClassifier {
         boolean requiresConfirmation = node.path("requiresConfirmation").asBoolean(false);
         List<String> missing = parseStringArray(node.get("missingEntities"));
         String clarification = nullIfBlank(node.path("clarificationQuestion").asText(null));
+        String responsePolicy = nullIfBlank(node.path("responsePolicy").asText(null));
+        List<String> responseConstraints = parseStringArray(node.get("responseConstraints"));
+        String progressMessage = nullIfBlank(node.path("progressMessage").asText(null));
 
         return new IntentResult(intent, targetTool, confidence, language, normalized,
-                entities, risk, requiresConfirmation, missing, clarification);
+                entities, risk, requiresConfirmation, missing, clarification,
+                responsePolicy, responseConstraints, progressMessage);
     }
 
     private String buildSystemPrompt() {
@@ -210,7 +214,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
                The only exception is verificationId: reuse it only when it appears in a trusted prior tool result in CONVERSATION HISTORY for subscription.request_unsubscribe_code.
                You MAY extract plain user-supplied fields (name, email, message, subject, keyword, body, content, etc.) from CONVERSATION HISTORY if the user explicitly provided them in an earlier turn.
                Return CLARIFICATION_NEEDED only when a required field (plain or opaque) is truly absent from BOTH the current utterance AND all of the conversation history.
-            6. For non-READ_ONLY tools, requiresConfirmation MUST be true, except subscription.confirm_unsubscribe: entering the emailed OTP is the confirmation, so requiresConfirmation MUST be false.
+            6. For non-READ_ONLY tools, requiresConfirmation MUST be true, except subscription.request_unsubscribe_code and subscription.confirm_unsubscribe. Supplying the email authorizes sending the code; entering the emailed OTP authorizes the status change. Both MUST set requiresConfirmation=false.
             7. If the user intent is ambiguous, return CLARIFICATION_NEEDED with a helpful clarificationQuestion in the user's language.
             8. If the request is unrelated to the available tools and not a portfolio knowledge-base question, return GENERAL_CHAT (small-talk / open question) or UNKNOWN (out of scope).
             9. Keep the original language in the language field (ISO 639-1: en, zh, es, ja, ...).
@@ -219,6 +223,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             12. For vague analytics ranges like "recent visitors", use the last 7 days ending on Current UTC date and set requiresConfirmation=true.
             13. For analytics ranges shorter than 7 days, expand to a 7-day window ending on the requested end date and set requiresConfirmation=true.
             14. Unsubscribe is a status change, never a hard delete. First route to subscription.request_unsubscribe_code with email. When the current utterance contains a 6-digit code and a prior trusted tool result contains verificationId, route to subscription.confirm_unsubscribe with both values. Never expose or repeat the code in prose.
+            15. When the user asks for an inference or estimate about Yuqi that can be responsibly derived from public portfolio context, route to KNOWLEDGE_QA rather than UNKNOWN. Select responsePolicy=PUBLIC_ESTIMATE and the appropriate constraints from PUBLIC_CONTEXT_ONLY, LABEL_AS_ESTIMATE, STATE_ASSUMPTIONS, and NO_PRIVATE_RECORD_CLAIM. If a material variable is missing, ask one specific clarification question in the user's language. Do not use keyword rules; decide from the request's semantic meaning.
 
             Allowed tools:
             %s
@@ -234,7 +239,10 @@ public class OpenAiIntentClassifier implements IntentClassifier {
               "riskLevel": "READ_ONLY | SAFE_WRITE | RISKY_WRITE | DESTRUCTIVE",
               "requiresConfirmation": true,
               "missingEntities": [],
-              "clarificationQuestion": "<string or null>"
+              "clarificationQuestion": "<string or null>",
+              "responsePolicy": "STANDARD | GROUNDED | PUBLIC_ESTIMATE | RESTRICTED",
+              "responseConstraints": ["<policy constraint>"],
+              "progressMessage": "<short user-facing progress message in the user's language; no hidden reasoning>"
             }
             """.formatted(LocalDate.now(ZoneOffset.UTC), toolsBlock);
     }

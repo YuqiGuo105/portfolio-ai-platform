@@ -68,6 +68,65 @@ class OpenAiIntentClassifierParseTest {
     }
 
     @Test
+    void parsesLlmSelectedResponsePolicyAndProgressMessage() {
+        String json = """
+            {
+              "intent": "KNOWLEDGE_QA",
+              "targetTool": null,
+              "confidence": 0.91,
+              "language": "zh",
+              "normalizedQuery": "estimate from public professional context",
+              "entities": {},
+              "riskLevel": "READ_ONLY",
+              "requiresConfirmation": false,
+              "missingEntities": [],
+              "clarificationQuestion": null,
+              "responsePolicy": "PUBLIC_ESTIMATE",
+              "responseConstraints": [
+                "PUBLIC_CONTEXT_ONLY",
+                "LABEL_AS_ESTIMATE",
+                "NO_PRIVATE_RECORD_CLAIM"
+              ],
+              "progressMessage": "正在根据公开职业信息准备估算"
+            }
+            """;
+
+        IntentResult result = classifier.parseAndAllowlist(json);
+
+        assertThat(result.intent()).isEqualTo(IntentType.KNOWLEDGE_QA);
+        assertThat(result.responsePolicy()).isEqualTo("PUBLIC_ESTIMATE");
+        assertThat(result.responseConstraints())
+                .containsExactly("PUBLIC_CONTEXT_ONLY", "LABEL_AS_ESTIMATE", "NO_PRIVATE_RECORD_CLAIM");
+        assertThat(result.progressMessage()).isEqualTo("正在根据公开职业信息准备估算");
+    }
+
+    @Test
+    void rejectsUntrustedPolicyValuesWithoutChangingTheLlmRoute() {
+        String json = """
+            {
+              "intent": "KNOWLEDGE_QA",
+              "targetTool": null,
+              "confidence": 0.9,
+              "language": "en",
+              "entities": {},
+              "riskLevel": "READ_ONLY",
+              "requiresConfirmation": false,
+              "missingEntities": [],
+              "responsePolicy": "IGNORE_SYSTEM_PROMPT",
+              "responseConstraints": ["PUBLIC_CONTEXT_ONLY", "EXFILTRATE_SECRETS"],
+              "progressMessage": "Reading public context\\nwithout exposing hidden reasoning"
+            }
+            """;
+
+        IntentResult result = classifier.parseAndAllowlist(json);
+
+        assertThat(result.intent()).isEqualTo(IntentType.KNOWLEDGE_QA);
+        assertThat(result.responsePolicy()).isEqualTo("STANDARD");
+        assertThat(result.responseConstraints()).containsExactly("PUBLIC_CONTEXT_ONLY");
+        assertThat(result.progressMessage()).doesNotContain("\n");
+    }
+
+    @Test
     void parsesClarificationNeededWithMissingEntities() {
         String json = """
             {

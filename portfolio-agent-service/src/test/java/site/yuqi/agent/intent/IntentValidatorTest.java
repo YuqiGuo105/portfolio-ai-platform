@@ -130,6 +130,21 @@ class IntentValidatorTest {
     }
 
     @Test
+    void executesUnsubscribeCodeRequestWithoutRedundantConfirmation() {
+        IntentResult r = new IntentResult(
+                IntentType.SUBSCRIPTION_REQUEST_UNSUBSCRIBE_CODE,
+                "subscription.request_unsubscribe_code", 0.98,
+                "zh", "request unsubscribe verification code",
+                Map.of("email", "a@example.com"),
+                RiskLevel.SAFE_WRITE, false, List.of(), null);
+
+        IntentValidator.ValidationResult v = validator.validate(r);
+
+        assertThat(v.getStatus()).isEqualTo(IntentValidator.Status.EXECUTE);
+        assertThat(v.getTool().requiresConfirmation()).isFalse();
+    }
+
+    @Test
     void generalChatPassesThrough() {
         IntentResult r = new IntentResult(
                 IntentType.GENERAL_CHAT, null, 0.5,

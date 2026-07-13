@@ -19,7 +19,7 @@ import java.util.Set;
  * {@code VIEWER,EDITOR}).
  *
  * <p>Anonymous callers (no userId / no roles) get implicit {@code VIEWER}
- * for public READ_ONLY tools only — never for writes.
+ * only for explicitly allowlisted public reads and OTP-protected self-service flows.
  */
 @Slf4j
 @Component
@@ -64,17 +64,23 @@ public class PolicyGuard {
             "analytics.get_referrer_summary"
     );
 
+    private static final Set<String> ANONYMOUS_SELF_SERVICE_TOOLS = Set.of(
+            "subscription.request_unsubscribe_code",
+            "subscription.confirm_unsubscribe"
+    );
+
     public PolicyDecision check(ToolDefinition tool,
                                 Map<String, Object> resolvedArgs,
                                 IntentRequest request) {
         Role required = REQUIRED_ROLE.getOrDefault(tool.name(), Role.ADMIN);
         Set<Role> userRoles = parseRoles(request.getUserRoles());
 
-        // Anonymous callers get implicit VIEWER only for explicitly public reads.
-        if (userRoles.isEmpty()
-                && tool.riskLevel() == RiskLevel.READ_ONLY
-                && required == Role.VIEWER
-                && ANONYMOUS_READ_TOOLS.contains(tool.name())) {
+        // Public self-service writes are narrowly scoped and independently
+        // protected by rate limits + email OTP at the notification service.
+        boolean publicRead = tool.riskLevel() == RiskLevel.READ_ONLY
+                && ANONYMOUS_READ_TOOLS.contains(tool.name());
+        boolean publicSelfService = ANONYMOUS_SELF_SERVICE_TOOLS.contains(tool.name());
+        if (userRoles.isEmpty() && required == Role.VIEWER && (publicRead || publicSelfService)) {
             userRoles = Set.of(Role.VIEWER);
         }
 

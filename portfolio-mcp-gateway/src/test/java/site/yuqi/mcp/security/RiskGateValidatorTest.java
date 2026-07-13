@@ -63,4 +63,19 @@ class RiskGateValidatorTest {
 
         assertThat(outcome.allowed()).isTrue();
     }
+
+    @Test
+    void acceptsPublicVerificationRequestWithoutRedundantConfirmation() {
+        ToolDefinition requestCode = ToolDefinition.builder()
+                .name("subscription.request_unsubscribe_code")
+                .mode(ToolMode.WRITE)
+                .riskLevel(RiskLevel.LOW)
+                .confirmRequired(false)
+                .build();
+
+        RiskGateValidator.Outcome outcome = validator.check(
+                requestCode, Map.of("email", "a@example.com"));
+
+        assertThat(outcome.allowed()).isTrue();
+    }
 }
