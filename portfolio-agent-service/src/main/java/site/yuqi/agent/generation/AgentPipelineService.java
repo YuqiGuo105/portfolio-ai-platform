@@ -129,6 +129,8 @@ public class AgentPipelineService {
                         .payload(Map.of(
                                 "question", question,
                                 "sessionId", sessionId != null ? sessionId : "",
+                                "conversationId", request.getConversationId() != null
+                                        ? request.getConversationId() : "",
                                 "agentVersion", "agent_v4",
                                 "promptProfile", "portfolio_assistant",
                                 "runMode", "production",
@@ -353,6 +355,7 @@ public class AgentPipelineService {
 
                             if (outputSafety.verdict() == SafetyVerdict.BLOCK) {
                                 log.warn("Output blocked for session={}", sessionId);
+                                String answer = alignAnswer(question, "I apologize, but I cannot provide that response.");
                                 eventRecorder.record(PlatformEvent.now(EventTypes.ANSWER_BLOCKED)
                                         .runId(runId)
                                         .service("agent-runtime-service")
@@ -360,11 +363,14 @@ public class AgentPipelineService {
                                         .payload(Map.of(
                                                 "blockStage", "output",
                                                 "reason", outputSafety.reason() != null ? outputSafety.reason() : "output_safety",
-                                                "fallbackAction", "safe_refusal"))
+                                                "fallbackAction", "safe_refusal",
+                                                "answer", answer,
+                                                "sessionId", nonBlank(sessionId, ""),
+                                                "conversationId", nonBlank(request.getConversationId(), ""),
+                                                "route", routeDecision.route().name()))
                                         .build());
 
                                 emitRunCompleted(runId, pipelineStart, "blocked");
-                                String answer = alignAnswer(question, "I apologize, but I cannot provide that response.");
                                 memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
                                         "BLOCKED", (Map<String, Object>) null);
                                 sink.next(answerFinalEvent(answer));
@@ -380,7 +386,11 @@ public class AgentPipelineService {
                                                 "inputSafetyVerdict", inputSafety.verdict().name(),
                                                 "outputSafetyVerdict", outputSafety.verdict().name(),
                                                 "agentVersion", "agent_v4",
-                                                "model", "gemini-2.5-pro"))
+                                                "model", "gemini-2.5-pro",
+                                                "answer", checkedAnswer,
+                                                "sessionId", nonBlank(sessionId, ""),
+                                                "conversationId", nonBlank(request.getConversationId(), ""),
+                                                "route", routeDecision.route().name()))
                                         .build());
 
                                 emitRunCompleted(runId, pipelineStart, "completed");
@@ -452,6 +462,7 @@ public class AgentPipelineService {
                                     long pipelineStart,
                                     SafetyCheckResult inputSafety) {
         log.warn("Input blocked for session={}: {}", sessionId, inputSafety.reason());
+        String answer = alignAnswer(question, "I'm sorry, I can't help with that request.");
         eventRecorder.record(PlatformEvent.now(EventTypes.ANSWER_BLOCKED)
                 .runId(runId)
                 .service("agent-runtime-service")
@@ -459,11 +470,14 @@ public class AgentPipelineService {
                 .payload(Map.of(
                         "blockStage", "input",
                         "reason", inputSafety.reason() != null ? inputSafety.reason() : "safety_block",
-                        "fallbackAction", "safe_refusal"))
+                        "fallbackAction", "safe_refusal",
+                        "answer", answer,
+                        "sessionId", nonBlank(sessionId, ""),
+                        "conversationId", nonBlank(request.getConversationId(), ""),
+                        "route", "BLOCKED"))
                 .build());
         emitRunCompleted(runId, pipelineStart, "blocked");
 
-        String answer = alignAnswer(question, "I'm sorry, I can't help with that request.");
         memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
                 "BLOCKED", (Map<String, Object>) null);
         sink.next(answerFinalEvent(answer));
@@ -541,7 +555,9 @@ public class AgentPipelineService {
                                     String question) {
         if (response == null) {
             emitRunCompleted(runId, pipelineStart, "failed");
-            sink.next(answerFinalEvent(alignAnswer(question, "Tool returned no response.")));
+            String answer = alignAnswer(question, "Tool returned no response.");
+            recordToolAnswerEvent(request, runId, pipelineStart, answer, "failed", "TOOL_ERROR");
+            sink.next(answerFinalEvent(answer));
             sink.next(doneEvent());
             sink.complete();
             return;
@@ -562,17 +578,43 @@ public class AgentPipelineService {
             log.warn("Tool answer blocked for session={}", request.getSessionId());
             emitRunCompleted(runId, pipelineStart, "blocked");
             String blocked = alignAnswer(question, "I apologize, but I cannot provide that response.");
+            recordToolAnswerEvent(request, runId, pipelineStart, blocked, "blocked", "BLOCKED");
             memoryWriter.writeTurnPair(request.getConversationId(), question, blocked, "BLOCKED", response);
             sink.next(answerFinalEvent(blocked));
         } else {
             emitRunCompleted(runId, pipelineStart,
                     "OK".equals(response.getType()) ? "tool_completed" : response.getType().toLowerCase());
+            String route = response.getIntent() != null && response.getIntent().targetTool() != null
+                    ? response.getIntent().targetTool() : response.getType();
+            recordToolAnswerEvent(request, runId, pipelineStart, answer, "answered", route);
             memoryWriter.writeTurnPair(request.getConversationId(), question, answer, response.getType(), response);
             sink.next(answerFinalEvent(answer, answerPayload(response)));
         }
 
         sink.next(doneEvent());
         sink.complete();
+    }
+
+    private void recordToolAnswerEvent(AgentStreamRequest request,
+                                       UUID runId,
+                                       long pipelineStart,
+                                       String answer,
+                                       String status,
+                                       String route) {
+        Map<String, Object> payload = new LinkedHashMap<>();
+        payload.put("answer", nonBlank(answer, ""));
+        payload.put("sessionId", nonBlank(request.getSessionId(), ""));
+        payload.put("conversationId", nonBlank(request.getConversationId(), ""));
+        payload.put("route", nonBlank(route, "MCP_TOOL"));
+        payload.put("answerLength", answer != null ? answer.length() : 0);
+        eventRecorder.record(PlatformEvent.now("blocked".equals(status)
+                        ? EventTypes.ANSWER_BLOCKED : EventTypes.ANSWER_GENERATED)
+                .runId(runId)
+                .service("agent-runtime-service")
+                .latencyMs((int) (System.currentTimeMillis() - pipelineStart))
+                .status(status)
+                .payload(payload)
+                .build());
     }
 
     private Map<String, Object> intentResponsePayload(IntentResponse response) {
