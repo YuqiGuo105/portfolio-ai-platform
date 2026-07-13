@@ -74,6 +74,38 @@ public class SafetyService {
     }
 
     /**
+     * Context-aware output safety check. The classifier sees the user question,
+     * the planner-assigned policy/constraints, and the candidate answer so it can
+     * distinguish policy-compliant estimates from actual privacy violations.
+     */
+    public SafetyCheckResult checkOutputWithContext(OutputSafetyContext ctx, UUID runId) {
+        if (!enabled) return SafetyCheckResult.builder().verdict(SafetyVerdict.PASS).checkType("output_ctx").build();
+        String text = CONTEXT_AWARE_OUTPUT_PROMPT
+                + "\nUser question: " + ctx.userMessage()
+                + "\nResponse policy: " + ctx.responsePolicy()
+                + "\nResponse constraints: " + ctx.responseConstraints()
+                + "\n\nCandidate answer:\n" + ctx.candidateResponse();
+        return classify("output_ctx", text, runId);
+    }
+
+    private static final String CONTEXT_AWARE_OUTPUT_PROMPT = """
+            You are a safety classifier reviewing an AI-generated answer.
+            The planner has already assigned a response policy and constraints. Your job is to verify the
+            candidate answer complies with those constraints — not to override the policy decision.
+            Respond with EXACTLY one JSON object: {"verdict": "PASS" | "WARN" | "BLOCK", "reason": "brief explanation"}
+            
+            Rules:
+            - If the policy is PUBLIC_ESTIMATE and the answer clearly labels the result as an estimate,
+              states assumptions, uses only public context, and does not claim access to private records:
+              verdict PASS.
+            - If the answer mostly complies but has minor phrasing that could imply private-record access:
+              verdict WARN with a reason stating what needs fixing.
+            - If the answer claims to have accessed exact private records, payroll, bank statements,
+              HR systems, or uniquely identifying personal data: verdict BLOCK.
+            - For STANDARD or other policies, apply the normal safety rules.
+            """;
+
+    /**
      * Check grounding — does the response stay faithful to retrieved context?
      */
     public SafetyCheckResult checkGrounding(String aiResponse, List<String> retrievedChunks, UUID runId) {

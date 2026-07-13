@@ -25,6 +25,7 @@ import site.yuqi.agent.observability.EventRecorder;
 import site.yuqi.agent.safety.SafetyCheckResult;
 import site.yuqi.agent.safety.SafetyService;
 import site.yuqi.agent.safety.SafetyVerdict;
+import site.yuqi.agent.safety.OutputSafetyContext;
 import site.yuqi.ai.contracts.event.EventTypes;
 import site.yuqi.ai.contracts.event.PlatformEvent;
 import site.yuqi.ai.contracts.knowledge.KnowledgeSearchResponse;
@@ -320,19 +321,38 @@ public class AgentPipelineService {
                                             "outputLength", fullAnswer.length()))
                                     .build());
 
-                            // Stage 5: Output safety check
+                            // Stage 5: Context-aware output safety check
+                            String policy = routeDecision.intent() != null
+                                    ? routeDecision.intent().responsePolicy() : "STANDARD";
+                            List<String> constraints = routeDecision.intent() != null
+                                    ? routeDecision.intent().responseConstraints() : List.of();
+                            OutputSafetyContext safetyCtx = new OutputSafetyContext(
+                                    question, finalAnswer, policy, constraints);
+
                             String outputSafetyStageId = stageId(runId, "output_safety");
                             sink.next(stageStarted("output_safety", "Checking the answer...",
                                     outputSafetyStageId));
                             long outputSafetyStart = System.currentTimeMillis();
-                            SafetyCheckResult outputSafety = safetyService.checkOutput(finalAnswer, runId);
+                            SafetyCheckResult outputSafety = safetyService.checkOutputWithContext(safetyCtx, runId);
+
+                            // WARN → one rewrite attempt (single extra model call)
+                            String checkedAnswer = finalAnswer;
+                            if (outputSafety.verdict() == SafetyVerdict.WARN) {
+                                log.info("Output WARN for session={}, attempting rewrite: {}",
+                                        sessionId, outputSafety.reason());
+                                checkedAnswer = safetyRewrite(finalAnswer, outputSafety.reason(),
+                                        policy, constraints);
+                                OutputSafetyContext reCtx = new OutputSafetyContext(
+                                        question, checkedAnswer, policy, constraints);
+                                outputSafety = safetyService.checkOutputWithContext(reCtx, runId);
+                            }
+
                             sink.next(stageCompleted("output_safety", "Answer checked", outputSafetyStageId,
                                     (int) (System.currentTimeMillis() - outputSafetyStart),
                                     Map.of("verdict", outputSafety.verdict().name())));
+
                             if (outputSafety.verdict() == SafetyVerdict.BLOCK) {
                                 log.warn("Output blocked for session={}", sessionId);
-
-                                // Emit: answer.blocked
                                 eventRecorder.record(PlatformEvent.now(EventTypes.ANSWER_BLOCKED)
                                         .runId(runId)
                                         .service("agent-runtime-service")
@@ -349,14 +369,13 @@ public class AgentPipelineService {
                                         "BLOCKED", (Map<String, Object>) null);
                                 sink.next(answerFinalEvent(answer));
                             } else {
-                                // Emit: answer.generated
                                 eventRecorder.record(PlatformEvent.now(EventTypes.ANSWER_GENERATED)
                                         .runId(runId)
                                         .service("agent-runtime-service")
                                         .latencyMs((int) (System.currentTimeMillis() - pipelineStart))
                                         .status("answered")
                                         .payload(Map.of(
-                                                "answerLength", finalAnswer.length(),
+                                                "answerLength", checkedAnswer.length(),
                                                 "chunksUsed", chunkCount,
                                                 "inputSafetyVerdict", inputSafety.verdict().name(),
                                                 "outputSafetyVerdict", outputSafety.verdict().name(),
@@ -365,9 +384,9 @@ public class AgentPipelineService {
                                         .build());
 
                                 emitRunCompleted(runId, pipelineStart, "completed");
-                                memoryWriter.writeTurnPair(request.getConversationId(), question, finalAnswer,
+                                memoryWriter.writeTurnPair(request.getConversationId(), question, checkedAnswer,
                                         "KNOWLEDGE_QA", (Map<String, Object>) null);
-                                sink.next(answerFinalEvent(finalAnswer));
+                                sink.next(answerFinalEvent(checkedAnswer));
                             }
                             sink.next(doneEvent());
                             sink.complete();
@@ -928,6 +947,39 @@ public class AgentPipelineService {
 
     private String alignAnswer(String question, String candidateAnswer) {
         return responseLanguageService.alignToInputLanguage(question, candidateAnswer);
+    }
+
+    /**
+     * One-shot safety rewrite using Flash. Only called when output safety returns WARN.
+     * Keeps the original language; fixes only the safety issue identified in {@code warnReason}.
+     */
+    private String safetyRewrite(String original, String warnReason,
+                                 String policy, List<String> constraints) {
+        String prompt = """
+                The following answer was flagged by the safety classifier with a WARN verdict.
+                Fix ONLY the issue described in the reason. Keep the same language, tone, and content.
+                Do not add disclaimers beyond what the constraints require.
+                
+                WARN reason: %s
+                Policy: %s
+                Constraints: %s
+                
+                Original answer:
+                %s
+                
+                Rewrite:
+                """.formatted(
+                warnReason != null ? warnReason : "minor safety concern",
+                policy, constraints, original);
+        try {
+            String rewritten = generationService.generate(
+                    "You are a safety rewriter. Fix the flagged issue in the answer. Preserve language and facts.",
+                    prompt);
+            return (rewritten != null && !rewritten.isBlank()) ? rewritten.trim() : original;
+        } catch (Exception e) {
+            log.warn("Safety rewrite failed, using original: {}", e.getMessage());
+            return original;
+        }
     }
 
     private static String nonBlank(String value, String fallback) {

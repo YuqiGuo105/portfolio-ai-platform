@@ -20,6 +20,7 @@ import site.yuqi.agent.observability.EventRecorder;
 import site.yuqi.agent.safety.SafetyCheckResult;
 import site.yuqi.agent.safety.SafetyService;
 import site.yuqi.agent.safety.SafetyVerdict;
+import site.yuqi.agent.safety.OutputSafetyContext;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -80,6 +81,7 @@ class AgentPipelineServiceRouteTest {
                 .build();
         when(safetyService.checkInput(anyString(), any())).thenReturn(pass);
         when(safetyService.checkOutput(anyString(), any())).thenReturn(pass);
+        when(safetyService.checkOutputWithContext(any(OutputSafetyContext.class), any())).thenReturn(pass);
         when(contextLoader.load(any(), any())).thenReturn(PlannerContext.empty(List.of()));
         when(responseLanguageService.alignToInputLanguage(anyString(), anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
@@ -195,5 +197,108 @@ class AgentPipelineServiceRouteTest {
                 true,
                 List.of(),
                 null);
+    }
+
+    @Test
+    void publicEstimatePolicyPassesThroughToAnswer() {
+        IntentResult intent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.9, "zh", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "PUBLIC_ESTIMATE",
+                List.of("PUBLIC_CONTEXT_ONLY", "LABEL_AS_ESTIMATE", "STATE_ASSUMPTIONS", "NO_PRIVATE_RECORD_CLAIM"),
+                "正在基于公开信息估算...");
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenReturn(AgentRouteDecision.knowledge(intent));
+        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("根据公开履历，估计年薪约为某个区间。"));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s1").question("他的工资大概多少").build())
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        // Should not be blocked
+        assertThat(events).extracting(e -> e.get("stage"))
+                .contains("answer_final", "done")
+                .doesNotContain("error");
+        // Verify context-aware safety was called (not plain checkOutput)
+        verify(safetyService).checkOutputWithContext(any(OutputSafetyContext.class), any());
+    }
+
+    @Test
+    void warnVerdictTriggersOneRewriteThenPasses() {
+        IntentResult intent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.9, "zh", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "PUBLIC_ESTIMATE",
+                List.of("LABEL_AS_ESTIMATE"), null);
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenReturn(AgentRouteDecision.knowledge(intent));
+        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("他的真实工资是X万。"));
+
+        SafetyCheckResult warn = SafetyCheckResult.builder()
+                .verdict(SafetyVerdict.WARN).checkType("output_ctx")
+                .reason("implies private record access").build();
+        SafetyCheckResult passAfter = SafetyCheckResult.builder()
+                .verdict(SafetyVerdict.PASS).checkType("output_ctx").build();
+        when(safetyService.checkOutputWithContext(any(OutputSafetyContext.class), any()))
+                .thenReturn(warn).thenReturn(passAfter);
+        when(generationService.generate(anyString(), anyString()))
+                .thenReturn("根据公开信息估计...");
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s1").question("salary?").build())
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        // Should pass after rewrite, not block
+        Map<String, Object> finalEvent = events.stream()
+                .filter(e -> "answer_final".equals(e.get("stage")))
+                .findFirst().orElseThrow();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) finalEvent.get("payload");
+        assertThat(payload.get("answer").toString()).contains("公开信息");
+        // generate() called once for rewrite
+        verify(generationService).generate(anyString(), anyString());
+    }
+
+    @Test
+    void blockVerdictAfterRewriteRefuses() {
+        IntentResult intent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.9, "en", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "STANDARD", List.of(), null);
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenReturn(AgentRouteDecision.knowledge(intent));
+        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("Here is the exact private salary record."));
+
+        SafetyCheckResult warn = SafetyCheckResult.builder()
+                .verdict(SafetyVerdict.WARN).checkType("output_ctx")
+                .reason("claims private record").build();
+        SafetyCheckResult block = SafetyCheckResult.builder()
+                .verdict(SafetyVerdict.BLOCK).checkType("output_ctx")
+                .reason("still claims private record").build();
+        when(safetyService.checkOutputWithContext(any(OutputSafetyContext.class), any()))
+                .thenReturn(warn).thenReturn(block);
+        when(generationService.generate(anyString(), anyString()))
+                .thenReturn("Still contains private data.");
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s1").question("exact salary?").build())
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        Map<String, Object> finalEvent = events.stream()
+                .filter(e -> "answer_final".equals(e.get("stage")))
+                .findFirst().orElseThrow();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) finalEvent.get("payload");
+        // Should contain a refusal, not the private content
+        assertThat(payload.get("answer").toString()).contains("apologize");
     }
 }
