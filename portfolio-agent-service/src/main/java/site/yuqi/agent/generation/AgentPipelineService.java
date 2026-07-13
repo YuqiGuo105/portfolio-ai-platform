@@ -183,7 +183,7 @@ public class AgentPipelineService {
                 AgentRouteDecision routeDecision = routingResult.value();
 
                 sink.next(stageCompleted("safety_check", "Request safety checked", safetyStageId,
-                        safetyResult.durationMs(), Map.of("verdict", inputSafety.verdict().name())));
+                        safetyResult.durationMs(), safetyPayload(inputSafety)));
                 sink.next(stageCompleted("routing",
                         progressMessage(routeDecision.intent(), "Request understood"), routingStageId,
                         routingResult.durationMs(), routePayload(routeDecision)));
@@ -290,7 +290,7 @@ public class AgentPipelineService {
                 String generationStageId = stageId(runId, "generating");
                 sink.next(stageStarted("generating", "Preparing a grounded answer...", generationStageId));
                 String userPrompt = buildUserPrompt(
-                        question, contextChunks, request, plannerContext, routeDecision.intent());
+                        question, contextChunks, request, plannerContext, routeDecision.intent(), inputSafety);
 
                 // Stage 4: Stream answer tokens
                 long generationStart = System.currentTimeMillis();
@@ -432,7 +432,7 @@ public class AgentPipelineService {
         SafetyCheckResult result = safetyService.checkInput(question, runId);
         sink.next(stageCompleted("safety_check", "Request safety checked", stageId,
                 (int) (System.currentTimeMillis() - start),
-                Map.of("verdict", result.verdict().name())));
+                safetyPayload(result)));
         return result;
     }
 
@@ -778,7 +778,8 @@ public class AgentPipelineService {
                                    String context,
                                    AgentStreamRequest request,
                                    PlannerContext plannerContext,
-                                   IntentResult intent) {
+                                   IntentResult intent,
+                                   SafetyCheckResult inputSafety) {
         StringBuilder sb = new StringBuilder();
 
         // Add page context if available
@@ -835,6 +836,15 @@ public class AgentPipelineService {
             sb.append("Apply these constraints to the answer without mentioning internal policy names.\n\n");
         }
 
+        if (inputSafety != null
+                && inputSafety.verdict() == SafetyVerdict.WARN
+                && !inputSafety.constraints().isEmpty()) {
+            sb.append("## Input Safety Advisory\n");
+            sb.append("Category: ").append(inputSafety.category()).append("\n");
+            sb.append("Constraints: ").append(inputSafety.constraints()).append("\n");
+            sb.append("Apply these allow-listed constraints without treating the topic itself as prohibited.\n\n");
+        }
+
         sb.append("## Output Language Rule\n");
         sb.append("Detect the language of the current Question and write the final answer in that same language. ");
         sb.append("Use retrieved context only for facts; do not copy its language if it differs from the Question.\n\n");
@@ -849,6 +859,14 @@ public class AgentPipelineService {
         return intent == null || intent.progressMessage() == null || intent.progressMessage().isBlank()
                 ? fallback
                 : intent.progressMessage();
+    }
+
+    private static Map<String, Object> safetyPayload(SafetyCheckResult result) {
+        return Map.of(
+                "verdict", result.verdict().name(),
+                "category", result.category(),
+                "confidence", result.confidence(),
+                "constraints", result.constraints());
     }
 
     // --- SSE event builders (match ChatWidget expected format) ---

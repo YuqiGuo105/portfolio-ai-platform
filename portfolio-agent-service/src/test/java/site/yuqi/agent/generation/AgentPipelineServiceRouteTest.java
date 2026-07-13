@@ -185,6 +185,46 @@ class AgentPipelineServiceRouteTest {
         verify(knowledgeClient, never()).search(anyString(), anyInt());
     }
 
+    @Test
+    void inputWarnContinuesThroughPlannerAndCarriesAllowListedConstraints() {
+        SafetyCheckResult warn = SafetyCheckResult.builder()
+                .verdict(SafetyVerdict.WARN)
+                .checkType("input")
+                .reason("Downstream policy review is appropriate.")
+                .category("AMBIGUOUS")
+                .confidence(0.74)
+                .constraints(List.of("PUBLIC_INFORMATION_ONLY", "STATE_UNCERTAINTY"))
+                .build();
+        when(safetyService.checkInput(anyString(), any())).thenReturn(warn);
+
+        IntentResult intent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.91, "en", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "PUBLIC_ESTIMATE", List.of("LABEL_AS_ESTIMATE"), null);
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenReturn(AgentRouteDecision.knowledge(intent));
+        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("A qualified public-context estimate."));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s-warn")
+                        .question("What can be reasonably inferred from the public profile?")
+                        .build())
+                .collectList()
+                .block();
+
+        assertThat(events).isNotNull();
+        assertThat(events).extracting(event -> event.get("stage"))
+                .contains("knowledge_retrieval", "answer_final", "done");
+
+        var promptCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(generationService).streamGenerate(anyString(), promptCaptor.capture());
+        assertThat(promptCaptor.getValue())
+                .contains("Input Safety Advisory")
+                .contains("PUBLIC_INFORMATION_ONLY", "STATE_UNCERTAINTY");
+    }
+
     private static IntentResult analyticsIntent() {
         return new IntentResult(
                 IntentType.ANALYTICS_GET_VISITOR_SUMMARY,
