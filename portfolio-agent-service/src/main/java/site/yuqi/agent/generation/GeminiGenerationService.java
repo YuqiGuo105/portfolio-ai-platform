@@ -52,7 +52,7 @@ public class GeminiGenerationService {
     public Flux<String> streamGenerate(String systemPrompt, String userMessage) {
         String url = baseUrl + "/models/" + generationModel + ":streamGenerateContent?alt=sse&key=" + apiKey;
 
-        ObjectNode requestBody = buildRequest(systemPrompt, userMessage);
+        ObjectNode requestBody = buildRequest(systemPrompt, userMessage, false);
 
         return webClient.post()
                 .uri(url)
@@ -71,12 +71,38 @@ public class GeminiGenerationService {
     }
 
     /**
+     * Deep-mode generation backed by Gemini Google Search grounding. The
+     * returned source list comes from provider grounding metadata, not from
+     * model-authored URLs.
+     */
+    public Flux<GroundedChunk> streamGenerateGrounded(String systemPrompt, String userMessage) {
+        String url = baseUrl + "/models/" + generationModel + ":streamGenerateContent?alt=sse&key=" + apiKey;
+        ObjectNode requestBody = buildRequest(systemPrompt, userMessage, true);
+
+        return webClient.post()
+                .uri(url)
+                .header("Content-Type", "application/json")
+                .bodyValue(requestBody.toString())
+                .retrieve()
+                .bodyToFlux(String.class)
+                .timeout(Duration.ofSeconds(90))
+                .filter(line -> line != null && !line.isBlank())
+                .map(this::extractGroundedChunk)
+                .filter(chunk -> !chunk.text().isEmpty() || !chunk.sources().isEmpty())
+                .onErrorResume(e -> {
+                    log.error("Gemini grounded stream error: {}", e.getMessage());
+                    return Flux.just(new GroundedChunk(
+                            "[Error generating grounded response: " + e.getMessage() + "]", List.of()));
+                });
+    }
+
+    /**
      * Non-streaming generation (for short answers).
      */
     public String generate(String systemPrompt, String userMessage) {
         String url = baseUrl + "/models/" + generationModel + ":generateContent?key=" + apiKey;
 
-        ObjectNode requestBody = buildRequest(systemPrompt, userMessage);
+        ObjectNode requestBody = buildRequest(systemPrompt, userMessage, false);
 
         String response = webClient.post()
                 .uri(url)
@@ -90,7 +116,7 @@ public class GeminiGenerationService {
         return extractFullText(response);
     }
 
-    private ObjectNode buildRequest(String systemPrompt, String userMessage) {
+    private ObjectNode buildRequest(String systemPrompt, String userMessage, boolean webSearch) {
         ObjectNode root = objectMapper.createObjectNode();
 
         // System instruction
@@ -122,8 +148,42 @@ public class GeminiGenerationService {
         genConfig.put("temperature", 0.7);
         root.set("generationConfig", genConfig);
 
+        if (webSearch) {
+            ArrayNode tools = objectMapper.createArrayNode();
+            tools.add(objectMapper.createObjectNode().set("google_search", objectMapper.createObjectNode()));
+            root.set("tools", tools);
+        }
+
         return root;
     }
+
+    private GroundedChunk extractGroundedChunk(String sseData) {
+        try {
+            String json = sseData.startsWith("data:") ? sseData.substring(5).trim() : sseData;
+            if (json.isBlank() || json.equals("[DONE]")) return new GroundedChunk("", List.of());
+            JsonNode node = objectMapper.readTree(json);
+            JsonNode candidate = node.path("candidates").path(0);
+            String text = candidate.path("content").path("parts").path(0).path("text").asText("");
+            List<GroundedSource> sources = new java.util.ArrayList<>();
+            JsonNode chunks = candidate.path("groundingMetadata").path("groundingChunks");
+            if (chunks.isArray()) {
+                for (JsonNode chunk : chunks) {
+                    JsonNode web = chunk.path("web");
+                    String uri = web.path("uri").asText("");
+                    if (!uri.isBlank()) {
+                        sources.add(new GroundedSource(uri, web.path("title").asText(uri)));
+                    }
+                }
+            }
+            return new GroundedChunk(text, List.copyOf(sources));
+        } catch (Exception e) {
+            log.trace("Failed to parse grounded SSE chunk: {}", sseData);
+            return new GroundedChunk("", List.of());
+        }
+    }
+
+    public record GroundedChunk(String text, List<GroundedSource> sources) {}
+    public record GroundedSource(String url, String title) {}
 
     private String extractTextDelta(String sseData) {
         try {

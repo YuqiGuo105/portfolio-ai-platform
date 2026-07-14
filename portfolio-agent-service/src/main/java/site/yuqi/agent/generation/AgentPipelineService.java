@@ -89,6 +89,7 @@ public class AgentPipelineService {
         return Flux.create(sink -> {
             String question = request.getQuestion();
             String sessionId = request.getSessionId();
+            boolean deepMode = "DEEPTHINKING".equalsIgnoreCase(request.getMode());
             if (question == null || question.isBlank()) {
                 sink.next(errorEvent("No question provided."));
                 sink.next(doneEvent());
@@ -231,6 +232,11 @@ public class AgentPipelineService {
                         return;
                     }
                     case GENERAL_CHAT -> {
+                        if (deepMode) {
+                            // Deep mode handles broader public-information questions by
+                            // continuing into retrieval + grounded web research.
+                            break;
+                        }
                         emitRunCompleted(runId, pipelineStart, "general_chat");
                         String answer = alignAnswer(question, nonBlank(routeDecision.message(),
                                 "I can help with Yuqi's portfolio, site analytics, content operations, and support workflows."));
@@ -243,6 +249,11 @@ public class AgentPipelineService {
                     case KNOWLEDGE_QA -> {
                         // Continue into the retrieval + grounded generation path below.
                     }
+                }
+
+                if (deepMode) {
+                    sink.next(reasoningStep("理解问题并制定搜索方向",
+                            "将结合站内资料与最新公开网页进行核验。", false));
                 }
 
                 // Stage 2: Knowledge retrieval
@@ -287,20 +298,51 @@ public class AgentPipelineService {
                 sink.next(stageCompleted("knowledge_retrieval",
                         "Found " + chunkCount + " relevant chunks",
                         retrievalStageId, retrievalLatency, Map.of("chunksFound", chunkCount)));
+                if (deepMode) {
+                    sink.next(reasoningStep("理解问题并制定搜索方向",
+                            "已确定需要核验的关键信息。", true));
+                    sink.next(reasoningStep("搜索公开资料",
+                            chunkCount > 0
+                                    ? "已读取 " + chunkCount + " 条相关站内资料，正在搜索公开网页。"
+                                    : "站内资料不足，正在搜索公开网页补充信息。", false));
+                }
 
                 // Stage 3: Build prompt with context + conversation history
                 String generationStageId = stageId(runId, "generating");
                 sink.next(stageStarted("generating", "Preparing a grounded answer...", generationStageId));
                 String userPrompt = buildUserPrompt(
                         question, contextChunks, request, plannerContext, routeDecision.intent(), inputSafety);
+                if (deepMode) {
+                    userPrompt += """
+
+                            ## Deep Research Instructions
+                            Use Google Search to find current, specific public information relevant to the question.
+                            Cross-check important claims across reliable sources when possible. Prefer official and
+                            primary sources. Infer which facts and output fields are needed from the user's question,
+                            then return the most specific supported result available.
+                            Do not stop at "I do not have this in the portfolio" and do not tell the user to search
+                            for it themselves before attempting web research. Answer the question directly from the
+                            verified search results. Include concrete details when supported, and state what could not
+                            be verified instead of filling gaps with invented information.
+                            Clearly distinguish verified facts from estimates or inference. Never claim access to
+                            private records. Include concise Markdown source links for claims based on the web.
+                            """;
+                }
 
                 // Stage 4: Stream answer tokens
                 long generationStart = System.currentTimeMillis();
                 StringBuilder answerBuf = new StringBuilder();
-                generationService.streamGenerate(SYSTEM_PROMPT, userPrompt)
-                        .doOnNext(delta -> {
+                Map<String, GeminiGenerationService.GroundedSource> groundedSources = new LinkedHashMap<>();
+                Flux<GeminiGenerationService.GroundedChunk> generationFlux = deepMode
+                        ? generationService.streamGenerateGrounded(SYSTEM_PROMPT, userPrompt)
+                        : generationService.streamGenerate(SYSTEM_PROMPT, userPrompt)
+                                .map(delta -> new GeminiGenerationService.GroundedChunk(delta, List.of()));
+                generationFlux
+                        .doOnNext(chunk -> {
+                            String delta = chunk.text();
+                            chunk.sources().forEach(source -> groundedSources.putIfAbsent(source.url(), source));
                             answerBuf.append(delta);
-                            sink.next(answerDeltaEvent(delta));
+                            if (!delta.isEmpty()) sink.next(answerDeltaEvent(delta));
                         })
                         .doOnComplete(() -> {
                             String fullAnswer = answerBuf.toString();
@@ -308,6 +350,15 @@ public class AgentPipelineService {
                             int generationLatency = (int) (System.currentTimeMillis() - generationStart);
                             sink.next(stageCompleted("generating", "Answer draft completed", generationStageId,
                                     generationLatency, Map.of("outputLength", fullAnswer.length())));
+                            if (deepMode) {
+                                sink.next(reasoningStep("搜索公开资料",
+                                        "已找到 " + groundedSources.size() + " 个可引用网页来源。", true));
+                                sink.next(reasoningStep("核验并综合结果",
+                                        "正在区分已证实信息、合理估算与无法确认的内容。", false));
+                                if (!groundedSources.isEmpty()) {
+                                    sink.next(sourcesFoundEvent(groundedSources.values().stream().toList()));
+                                }
+                            }
 
                             // Emit: model_call.completed
                             eventRecorder.record(PlatformEvent.now(EventTypes.MODEL_CALL_COMPLETED)
@@ -352,6 +403,10 @@ public class AgentPipelineService {
                             sink.next(stageCompleted("output_safety", "Answer checked", outputSafetyStageId,
                                     (int) (System.currentTimeMillis() - outputSafetyStart),
                                     Map.of("verdict", outputSafety.verdict().name())));
+                            if (deepMode) {
+                                sink.next(reasoningStep("核验并综合结果",
+                                        "核验完成，已整理为可读答案并附上来源。", true));
+                            }
 
                             if (outputSafety.verdict() == SafetyVerdict.BLOCK) {
                                 log.warn("Output blocked for session={}", sessionId);
@@ -930,6 +985,28 @@ public class AgentPipelineService {
         event.put("startedAt", System.currentTimeMillis());
         event.put("message", message);
         return event;
+    }
+
+    private Map<String, Object> reasoningStep(String label, String detail, boolean completed) {
+        return Map.of(
+                "stage", "reasoning_step",
+                "payload", Map.of(
+                        "label", label,
+                        "detail", detail,
+                        "completed", completed));
+    }
+
+    private Map<String, Object> sourcesFoundEvent(List<GeminiGenerationService.GroundedSource> sources) {
+        List<Map<String, Object>> cards = sources.stream()
+                .limit(8)
+                .map(source -> Map.<String, Object>of(
+                        "id", source.url(),
+                        "url", source.url(),
+                        "title", nonBlank(source.title(), source.url()),
+                        "type", "web",
+                        "favicon", "https://www.google.com/s2/favicons?domain_url=" + source.url() + "&sz=64"))
+                .toList();
+        return Map.of("stage", "sources_found", "payload", Map.of("sources", cards));
     }
 
     private Map<String, Object> stageCompleted(String stage,

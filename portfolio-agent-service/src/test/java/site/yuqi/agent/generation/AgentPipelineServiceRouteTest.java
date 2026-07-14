@@ -225,6 +225,44 @@ class AgentPipelineServiceRouteTest {
                 .contains("PUBLIC_INFORMATION_ONLY", "STATE_UNCERTAINTY");
     }
 
+    @Test
+    void deepModeResearchesGeneralQuestionsAndPublishesReadableStepsAndSources() {
+        IntentResult intent = new IntentResult(
+                IntentType.GENERAL_CHAT, null, 0.92, "zh", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "STANDARD", List.of(), "正在搜索公开资料");
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenReturn(AgentRouteDecision.generalChat(intent, "普通模式的简短回答"));
+        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(generationService.streamGenerateGrounded(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just(
+                        new GeminiGenerationService.GroundedChunk(
+                                "高盛在中国设有业务实体。",
+                                List.of(new GeminiGenerationService.GroundedSource(
+                                        "https://www.goldmansachs.com/worldwide/china/",
+                                        "Goldman Sachs in China")))));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s-deep")
+                        .question("高盛公司在中国有分公司吗？")
+                        .mode("DEEPTHINKING")
+                        .build())
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        assertThat(events).extracting(event -> event.get("stage"))
+                .contains("knowledge_retrieval", "reasoning_step", "sources_found", "answer_final", "done");
+        var promptCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
+        verify(generationService).streamGenerateGrounded(anyString(), promptCaptor.capture());
+        assertThat(promptCaptor.getValue())
+                .contains("do not tell the user to search")
+                .contains("Infer which facts and output fields are needed")
+                .contains("state what could not")
+                .contains("be verified instead of filling gaps")
+                .doesNotContain("location questions", "cities or offices");
+        verify(generationService, never()).streamGenerate(anyString(), anyString());
+    }
+
     private static IntentResult analyticsIntent() {
         return new IntentResult(
                 IntentType.ANALYTICS_GET_VISITOR_SUMMARY,
