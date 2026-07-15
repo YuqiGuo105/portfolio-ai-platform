@@ -123,6 +123,11 @@ observability:
   outbox:
     poll-interval-ms: ${OUTBOX_POLL_INTERVAL_MS:5000}
     batch-size: ${OUTBOX_BATCH_SIZE:100}
+  retention:
+    # Days to keep daily indexes before automatic deletion (free-tier shard budget)
+    days: ${OBSERVABILITY_RETENTION_DAYS:7}
+    # Max shards allowed before emergency cleanup removes oldest indexes
+    max-shards: ${OBSERVABILITY_MAX_SHARDS:18}
 
 # ─── Knowledge Service ───────────────────────────────────────────────────
 knowledge:
