@@ -412,3 +412,74 @@ tools:
       target: notification
       method: POST
       path: /api/subscriptions/unsubscribe/confirm
+
+  # ── Alerts: read ──────────────────────────────────────────────────────
+  - name: alerts.list_rules
+    mode: READ
+    description: List alert rules with optional filters by name, event type, or enabled status.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: name,      type: string,  required: false, description: "Name substring filter." }
+      - { name: eventType, type: string,  required: false, description: "Event type filter (e.g. page_view, click)." }
+      - { name: enabled,   type: boolean, required: false, description: "Filter by enabled/disabled." }
+    endpoint:
+      target: alerts
+      method: GET
+      path: /api/alert-rules
+
+  - name: alerts.get_rule
+    mode: READ
+    description: Get full details of a single alert rule including version and all fields.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: ruleId, type: integer, required: true, description: "Alert rule ID." }
+    endpoint:
+      target: alerts
+      method: GET
+      path: /api/alert-rules/{ruleId}
+
+  # ── Alerts: write (prepare/apply two-phase) ────────────────────────────
+  - name: alerts.prepare_change
+    mode: READ
+    description: >
+      Validate a proposed alert rule change and return a diff preview without modifying
+      data. Returns a changeId, before/after state, diff, warnings, and expiry.
+      Supported actions: CREATE, UPDATE, SET_ENABLED.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: action,  type: string,  required: true,  description: "CREATE | UPDATE | SET_ENABLED" }
+      - { name: ruleId,  type: integer, required: false, description: "Required for UPDATE and SET_ENABLED." }
+      - { name: patch,   type: object,  required: true,  description: "Partial fields to change (name, threshold, granularity, enabled, etc.)." }
+      - { name: reason,  type: string,  required: false, description: "Human-readable reason for the change." }
+      - { name: actor,   type: string,  required: false, description: "Actor identity from auth context." }
+    endpoint:
+      target: alerts
+      method: POST
+      path: /api/alert-rules/changes/prepare
+
+  - name: alerts.apply_change
+    mode: WRITE
+    description: >
+      Apply a previously prepared change. Only accepts the changeId returned by
+      alerts.prepare_change. The change must not be expired and is single-use.
+      Requires an idempotency key to prevent double-execution.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: changeId,       type: string, required: true,  description: "Change token from prepare_change." }
+      - { name: idempotencyKey, type: string, required: true,  description: "Unique key to prevent duplicate applies." }
+    endpoint:
+      target: alerts
+      method: POST
+      path: /api/alert-rules/changes/apply

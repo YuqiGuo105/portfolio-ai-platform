@@ -86,7 +86,8 @@ public class ToolController {
             @RequestBody(required = false) Map<String, Object> body,
             @RequestHeader(value = "Authorization", required = false) String auth,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
-            @RequestHeader(value = "X-Actor", required = false) String actor) {
+            @RequestHeader(value = "X-Actor", required = false) String actor,
+            @RequestHeader(value = "X-Role", required = false) String role) {
 
         if (!authorized(auth)) return unauthorized();
 
@@ -96,6 +97,17 @@ public class ToolController {
                     .body(StructuredErrorResponse.of("tool_not_found", "Unknown tool: " + name, name));
         }
         ToolDefinition tool = toolOpt.get();
+
+        // RBAC: enforce requiredRole
+        if (!hasRequiredRole(tool, role)) {
+            auditService.logInvocation(tool, actor, body, idempotencyKey,
+                    "rejected_role", null, 0L, "required=" + tool.getRequiredRole() + " actual=" + role);
+            return ResponseEntity.status(HttpStatus.FORBIDDEN)
+                    .body(StructuredErrorResponse.of("insufficient_role",
+                            "Tool requires role " + tool.getRequiredRole() + " but caller has " + (role != null ? role : "none"),
+                            tool.getName()));
+        }
+
         Map<String, Object> args = body == null ? new HashMap<>() : new HashMap<>(body);
 
         // 1. Parameter validation
@@ -187,5 +199,31 @@ public class ToolController {
         return ResponseEntity.status(HttpStatus.UNAUTHORIZED)
                 .header(HttpHeaders.WWW_AUTHENTICATE, "Bearer")
                 .body(StructuredErrorResponse.of("unauthorized", "Missing or invalid bearer token."));
+    }
+
+    /**
+     * RBAC enforcement: checks if the caller's role satisfies the tool's requiredRole.
+     * Role hierarchy: ADMIN > PUBLISHER > EDITOR > VIEWER.
+     * The internal agent-service/mcp-server calls with X-Role header.
+     * If no requiredRole is set on the tool, any authenticated caller passes.
+     */
+    private boolean hasRequiredRole(ToolDefinition tool, String callerRole) {
+        String required = tool.getRequiredRole();
+        if (required == null || required.isBlank()) return true;
+        if (callerRole == null || callerRole.isBlank()) {
+            // Legacy callers without X-Role header: grant VIEWER level for backward compat
+            return roleLevel(required) <= roleLevel("VIEWER");
+        }
+        return roleLevel(callerRole) >= roleLevel(required);
+    }
+
+    private static int roleLevel(String role) {
+        return switch (role.toUpperCase()) {
+            case "ADMIN" -> 4;
+            case "PUBLISHER" -> 3;
+            case "EDITOR" -> 2;
+            case "VIEWER" -> 1;
+            default -> 0;
+        };
     }
 }
