@@ -183,7 +183,10 @@ public class AgentPipelineService {
                                 decision.type() == LlmAgentRoutePlanner.PendingActionDecisionType.CONFIRM);
                     }
 
-                    sink.next(stageEvent("tool_execution", "Completing confirmed action..."));
+                    boolean executing = Boolean.TRUE.equals(intentRequest.getConfirm());
+                    sink.next(stageEvent(
+                            executing ? "tool_execution" : "pending_action",
+                            executing ? "Executing confirmed action..." : "Cancelling pending action..."));
                     IntentResponse response = intentOrchestrator.handle(intentRequest);
                     handleToolResponse(sink, request, response, runId, pipelineStart, question);
                     return;

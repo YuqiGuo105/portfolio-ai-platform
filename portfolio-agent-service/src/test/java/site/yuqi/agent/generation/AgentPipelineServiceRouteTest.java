@@ -235,6 +235,37 @@ class AgentPipelineServiceRouteTest {
     }
 
     @Test
+    void cancelledPendingActionUsesCancellationProgressCard() {
+        IntentResult decisionIntent = new IntentResult(
+                IntentType.PENDING_ACTION_CANCEL, null, 0.97,
+                "zh", null, Map.of(), RiskLevel.READ_ONLY,
+                false, List.of(), null);
+        when(routePlanner.planPendingAction(any(IntentRequest.class)))
+                .thenReturn(new LlmAgentRoutePlanner.PendingActionDecision(
+                        LlmAgentRoutePlanner.PendingActionDecisionType.CANCEL,
+                        decisionIntent, null));
+        when(intentOrchestrator.handle(any(IntentRequest.class)))
+                .thenReturn(IntentResponse.ask("Cancelled. The action was not performed."));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s1")
+                        .question("cancel pending action")
+                        .pendingActionId("pending-contact")
+                        .build())
+                .collectList()
+                .block();
+
+        assertThat(events).isNotNull();
+        Map<String, Object> progress = events.stream()
+                .filter(event -> "pending_action".equals(event.get("stage")))
+                .findFirst()
+                .orElseThrow();
+        assertThat(progress.get("message")).isEqualTo("Cancelling pending action...");
+        assertThat(events).extracting(event -> event.get("stage"))
+                .doesNotContain("tool_execution");
+    }
+
+    @Test
     void clarifyRouteRecordsTheFinalAnswerBeforeRunCompletion() {
         IntentResult intent = analyticsIntent();
         when(routePlanner.plan(any(IntentRequest.class)))
