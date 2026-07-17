@@ -212,11 +212,12 @@ public class AgentPipelineService {
                         return;
                     }
                     case CLARIFY -> {
-                        emitRunCompleted(runId, pipelineStart, "clarify");
                         String candidate = nonBlank(routeDecision.message(), "Could you clarify what you need?");
                         String answer = plannerAlreadyLocalized(routeDecision)
                                 ? candidate
                                 : alignAnswer(question, candidate);
+                        recordAnswerEvent(request, runId, pipelineStart, answer, "answered", "CLARIFY");
+                        emitRunCompleted(runId, pipelineStart, "clarify");
                         memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "CLARIFY", (Map<String, Object>) null);
                         sink.next(answerFinalEvent(answer));
                         sink.next(doneEvent());
@@ -225,6 +226,7 @@ public class AgentPipelineService {
                     }
                     case HANDOFF -> {
                         String answer = requestHandoffConfirmation(sink, question, routeDecision);
+                        recordAnswerEvent(request, runId, pipelineStart, answer, "answered", "HANDOFF");
                         memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "HANDOFF", (Map<String, Object>) null);
                         emitRunCompleted(runId, pipelineStart, "handoff_pending");
                         sink.next(doneEvent());
@@ -237,9 +239,10 @@ public class AgentPipelineService {
                             // continuing into retrieval + grounded web research.
                             break;
                         }
-                        emitRunCompleted(runId, pipelineStart, "general_chat");
                         String answer = alignAnswer(question, nonBlank(routeDecision.message(),
                                 "I can help with Yuqi's portfolio, site analytics, content operations, and support workflows."));
+                        recordAnswerEvent(request, runId, pipelineStart, answer, "answered", "GENERAL_CHAT");
+                        emitRunCompleted(runId, pipelineStart, "general_chat");
                         memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "GENERAL_CHAT", (Map<String, Object>) null);
                         sink.next(answerFinalEvent(answer));
                         sink.next(doneEvent());
@@ -482,13 +485,12 @@ public class AgentPipelineService {
                                     (int) (System.currentTimeMillis() - generationStart),
                                     Map.of("status", "failed")));
 
-                            // Emit: agent_run.completed (failed)
-                            emitRunCompleted(runId, pipelineStart, "failed");
-
                             String answer = answerBuf.isEmpty()
                                     ? "Sorry, I encountered an error generating a response."
                                     : answerBuf.toString();
                             answer = alignAnswer(question, answer);
+                            recordAnswerEvent(request, runId, pipelineStart, answer, "failed", "ERROR");
+                            emitRunCompleted(runId, pipelineStart, "failed");
                             memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
                                     "ERROR", (Map<String, Object>) null);
                             sink.next(answerFinalEvent(answer));
@@ -629,9 +631,9 @@ public class AgentPipelineService {
                                     long pipelineStart,
                                     String question) {
         if (response == null) {
-            emitRunCompleted(runId, pipelineStart, "failed");
             String answer = alignAnswer(question, "Tool returned no response.");
-            recordToolAnswerEvent(request, runId, pipelineStart, answer, "failed", "TOOL_ERROR");
+            recordAnswerEvent(request, runId, pipelineStart, answer, "failed", "TOOL_ERROR");
+            emitRunCompleted(runId, pipelineStart, "failed");
             sink.next(answerFinalEvent(answer));
             sink.next(doneEvent());
             sink.complete();
@@ -651,17 +653,17 @@ public class AgentPipelineService {
                 : safetyService.checkOutput(answer, runId).verdict();
         if (outputVerdict == SafetyVerdict.BLOCK) {
             log.warn("Tool answer blocked for session={}", request.getSessionId());
-            emitRunCompleted(runId, pipelineStart, "blocked");
             String blocked = alignAnswer(question, "I apologize, but I cannot provide that response.");
-            recordToolAnswerEvent(request, runId, pipelineStart, blocked, "blocked", "BLOCKED");
+            recordAnswerEvent(request, runId, pipelineStart, blocked, "blocked", "BLOCKED");
+            emitRunCompleted(runId, pipelineStart, "blocked");
             memoryWriter.writeTurnPair(request.getConversationId(), question, blocked, "BLOCKED", response);
             sink.next(answerFinalEvent(blocked));
         } else {
-            emitRunCompleted(runId, pipelineStart,
-                    "OK".equals(response.getType()) ? "tool_completed" : response.getType().toLowerCase());
             String route = response.getIntent() != null && response.getIntent().targetTool() != null
                     ? response.getIntent().targetTool() : response.getType();
-            recordToolAnswerEvent(request, runId, pipelineStart, answer, "answered", route);
+            recordAnswerEvent(request, runId, pipelineStart, answer, "answered", route);
+            emitRunCompleted(runId, pipelineStart,
+                    "OK".equals(response.getType()) ? "tool_completed" : response.getType().toLowerCase());
             memoryWriter.writeTurnPair(request.getConversationId(), question, answer, response.getType(), response);
             sink.next(answerFinalEvent(answer, answerPayload(response)));
         }
@@ -670,12 +672,12 @@ public class AgentPipelineService {
         sink.complete();
     }
 
-    private void recordToolAnswerEvent(AgentStreamRequest request,
-                                       UUID runId,
-                                       long pipelineStart,
-                                       String answer,
-                                       String status,
-                                       String route) {
+    private void recordAnswerEvent(AgentStreamRequest request,
+                                   UUID runId,
+                                   long pipelineStart,
+                                   String answer,
+                                   String status,
+                                   String route) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("answer", nonBlank(answer, ""));
         payload.put("sessionId", nonBlank(request.getSessionId(), ""));
@@ -883,6 +885,7 @@ public class AgentPipelineService {
                 Map.of("ticketId", ticketId.toString(), "reason", "USER_REQUESTED")));
         String answer = alignAnswer(question, "I've created a support ticket for you. A human agent will follow up shortly. "
                 + "Your ticket ID is: " + ticketId.toString().substring(0, 8));
+        recordAnswerEvent(request, runId, pipelineStart, answer, "answered", "HANDOFF");
         memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
                 "HANDOFF", Map.of("ticketId", ticketId.toString(), "targetTool", "human_handoff"));
         sink.next(answerFinalEvent(answer, Map.of("ticketId", ticketId.toString())));

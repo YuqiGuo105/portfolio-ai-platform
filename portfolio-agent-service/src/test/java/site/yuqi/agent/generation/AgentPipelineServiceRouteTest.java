@@ -2,6 +2,7 @@ package site.yuqi.agent.generation;
 
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.mockito.ArgumentCaptor;
 import site.yuqi.agent.budget.BudgetDecision;
 import site.yuqi.agent.budget.ChatBudgetService;
 import site.yuqi.agent.client.KnowledgeClient;
@@ -21,6 +22,7 @@ import site.yuqi.agent.safety.SafetyCheckResult;
 import site.yuqi.agent.safety.SafetyService;
 import site.yuqi.agent.safety.SafetyVerdict;
 import site.yuqi.agent.safety.OutputSafetyContext;
+import site.yuqi.ai.contracts.event.PlatformEvent;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -34,6 +36,7 @@ import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
+import static org.mockito.Mockito.times;
 import static org.mockito.Mockito.verify;
 import static org.mockito.Mockito.when;
 
@@ -48,6 +51,7 @@ class AgentPipelineServiceRouteTest {
     private ConversationContextLoader contextLoader;
     private MemoryWriter memoryWriter;
     private ChatBudgetService chatBudgetService;
+    private EventRecorder eventRecorder;
     private AgentPipelineService service;
 
     @BeforeEach
@@ -61,6 +65,7 @@ class AgentPipelineServiceRouteTest {
         contextLoader = mock(ConversationContextLoader.class);
         memoryWriter = mock(MemoryWriter.class);
         chatBudgetService = mock(ChatBudgetService.class);
+        eventRecorder = mock(EventRecorder.class);
 
         service = new AgentPipelineService(
                 safetyService,
@@ -68,7 +73,7 @@ class AgentPipelineServiceRouteTest {
                 generationService,
                 responseLanguageService,
                 mock(HandoffService.class),
-                mock(EventRecorder.class),
+                eventRecorder,
                 routePlanner,
                 intentOrchestrator,
                 contextLoader,
@@ -158,6 +163,30 @@ class AgentPipelineServiceRouteTest {
                 .containsEntry("pendingActionId", "pending-123")
                 .containsEntry("responseType", "CONFIRMATION_REQUIRED");
         verify(knowledgeClient, never()).search(anyString(), anyInt());
+    }
+
+    @Test
+    void clarifyRouteRecordsTheFinalAnswerBeforeRunCompletion() {
+        IntentResult intent = analyticsIntent();
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenReturn(AgentRouteDecision.clarify(intent, "Which time range should I use?"));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s-clarify")
+                        .question("Show me the visitors")
+                        .build())
+                .collectList()
+                .block();
+
+        assertThat(events).isNotNull();
+        ArgumentCaptor<PlatformEvent> eventCaptor = ArgumentCaptor.forClass(PlatformEvent.class);
+        verify(eventRecorder, times(3)).record(eventCaptor.capture());
+        List<PlatformEvent> recorded = eventCaptor.getAllValues();
+        assertThat(recorded).extracting(PlatformEvent::eventType)
+                .containsExactly("agent_run.started", "answer.generated", "agent_run.completed");
+        assertThat(recorded.get(1).payload())
+                .containsEntry("answer", "Which time range should I use?")
+                .containsEntry("route", "CLARIFY");
     }
 
     @Test

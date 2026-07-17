@@ -90,6 +90,30 @@ class AdminConversationServiceTest {
         assertThat(response.summary().averageLatencyMs()).isNull();
     }
 
+    @Test
+    void treatsPlannerOutcomeAsCompletedLifecycleAndRoute() {
+        Instant base = Instant.parse("2026-07-17T01:00:00Z");
+        when(repository.findRunEvents(any(Instant.class), anyString(), anyInt())).thenReturn(List.of(
+                row("agent_run", base, """
+                        {"eventType":"agent_run.started","runId":"run-3","status":"running",
+                         "payload":{"question":"Can you clarify?"}}
+                        """),
+                row("agent_run", base.plusMillis(40), """
+                        {"eventType":"agent_run.completed","runId":"run-3","status":"clarify",
+                         "latencyMs":40,"payload":{"finalStatus":"clarify"}}
+                        """)));
+
+        AdminConversationService.ConversationResponse response = service.list("", 24, 10);
+
+        assertThat(response.summary().completed()).isEqualTo(1);
+        assertThat(response.summary().averageLatencyMs()).isEqualTo(40);
+        assertThat(response.items()).singleElement().satisfies(run -> {
+            assertThat(run.completedAt()).isNotNull();
+            assertThat(run.status()).isEqualTo("clarify");
+            assertThat(run.route()).isEqualTo("CLARIFY");
+        });
+    }
+
     private static AdminConversationEventRepository.EventRow row(
             String category, Instant createdAt, String payload) {
         return new AdminConversationEventRepository.EventRow(

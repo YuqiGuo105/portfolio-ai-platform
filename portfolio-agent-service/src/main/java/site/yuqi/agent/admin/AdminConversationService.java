@@ -14,6 +14,7 @@ import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
+import java.util.Set;
 
 @Slf4j
 @Service
@@ -61,8 +62,10 @@ public class AdminConversationService {
                     run.sessionId = text(payload, "sessionId");
                     run.conversationId = text(payload, "conversationId");
                 } else if ("agent_run.completed".equals(eventType)) {
+                    String finalStatus = text(payload, "finalStatus");
                     run.completedAt = timestamp;
-                    run.status = valueOr(text(payload, "finalStatus"), valueOr(status, run.status));
+                    run.status = valueOr(finalStatus, valueOr(status, run.status));
+                    run.route = valueOr(run.route, routeFromFinalStatus(finalStatus));
                     run.latencyMs = latencyMs != null ? latencyMs : run.latencyMs;
                 } else if (eventType.startsWith("answer.")) {
                     run.answer = valueOr(text(payload, "answer"), run.answer);
@@ -91,10 +94,10 @@ public class AdminConversationService {
     }
 
     private Summary summarize(List<ConversationRun> items) {
-        long completed = items.stream().filter(run -> isCompleted(run.status())).count();
+        long completed = items.stream().filter(this::isCompleted).count();
         long blocked = items.stream().filter(run -> "blocked".equalsIgnoreCase(run.status())).count();
         List<Integer> latencies = items.stream()
-                .filter(run -> isCompleted(run.status()))
+                .filter(this::isCompleted)
                 .map(ConversationRun::latencyMs)
                 .filter(value -> value != null && value >= 0)
                 .toList();
@@ -104,12 +107,10 @@ public class AdminConversationService {
         return new Summary(items.size(), completed, blocked, averageLatencyMs);
     }
 
-    private boolean isCompleted(String status) {
-        if (status == null) return false;
-        return switch (status.toLowerCase(Locale.ROOT)) {
-            case "completed", "answered", "tool_completed" -> true;
-            default -> false;
-        };
+    private boolean isCompleted(ConversationRun run) {
+        if (run.completedAt() == null) return false;
+        String status = valueOr(run.status(), "").toLowerCase(Locale.ROOT);
+        return !Set.of("blocked", "failed", "budget_exhausted").contains(status);
     }
 
     private Map<String, Object> detail(JsonNode payload) {
@@ -144,6 +145,14 @@ public class AdminConversationService {
 
     private static String valueOr(String value, String fallback) {
         return value != null ? value : fallback;
+    }
+
+    private static String routeFromFinalStatus(String finalStatus) {
+        if (finalStatus == null) return null;
+        return switch (finalStatus.toLowerCase(Locale.ROOT)) {
+            case "completed", "blocked", "failed", "budget_exhausted", "tool_completed" -> null;
+            default -> finalStatus.toUpperCase(Locale.ROOT);
+        };
     }
 
     public record ConversationResponse(
