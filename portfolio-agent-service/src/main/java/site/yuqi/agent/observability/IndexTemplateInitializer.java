@@ -22,6 +22,14 @@ public class IndexTemplateInitializer {
     @EventListener(ApplicationReadyEvent.class)
     public void ensureTemplate() {
         try {
+            // Remove any conflicting legacy template first
+            try {
+                openSearchClient.indices().deleteIndexTemplate(d -> d.name("ai-events-template"));
+                log.info("Removed legacy 'ai-events-template'");
+            } catch (Exception ignored) {
+                // Template may not exist — that's fine
+            }
+
             openSearchClient.indices().putIndexTemplate(PutIndexTemplateRequest.of(t -> t
                     .name("ai-observability-free-tier")
                     .indexPatterns("ai-*")
