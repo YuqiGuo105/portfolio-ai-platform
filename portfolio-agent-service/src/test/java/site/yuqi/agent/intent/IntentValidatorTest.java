@@ -145,6 +145,38 @@ class IntentValidatorTest {
     }
 
     @Test
+    void executesContactToolWhenEmailAndMessageArePresent() {
+        IntentResult r = new IntentResult(
+                IntentType.CONTACT_EMAIL_OWNER,
+                "contact.email_owner", 0.96,
+                "zh", "send a message to the owner",
+                Map.of("email", "visitor@example.com", "message", "Hello world"),
+                RiskLevel.SAFE_WRITE, true, List.of(), null);
+
+        IntentValidator.ValidationResult v = validator.validate(r);
+
+        assertThat(v.getStatus()).isEqualTo(IntentValidator.Status.EXECUTE);
+        assertThat(v.getTool().requiredEntities()).containsExactlyInAnyOrder("email", "message");
+        assertThat(v.getTool().optionalEntities()).contains("name");
+    }
+
+    @Test
+    void clarifiesContactToolWhenMessageIsMissing() {
+        IntentResult r = new IntentResult(
+                IntentType.CONTACT_EMAIL_OWNER,
+                "contact.email_owner", 0.96,
+                "zh", "contact the owner",
+                Map.of("email", "visitor@example.com"),
+                RiskLevel.SAFE_WRITE, true, List.of("message"),
+                "What message would you like to send?");
+
+        IntentValidator.ValidationResult v = validator.validate(r);
+
+        assertThat(v.getStatus()).isEqualTo(IntentValidator.Status.CLARIFY);
+        assertThat(v.getMissingEntities()).containsExactly("message");
+    }
+
+    @Test
     void generalChatPassesThrough() {
         IntentResult r = new IntentResult(
                 IntentType.GENERAL_CHAT, null, 0.5,

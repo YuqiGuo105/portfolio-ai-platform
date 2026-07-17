@@ -76,4 +76,24 @@ class PolicyGuardAnalyticsTest {
         assertThat(confirmDecision.isAllowed()).isTrue();
         assertThat(confirmDecision.isRequiresConfirmation()).isFalse();
     }
+
+    @Test
+    void anonymousContactRequiresConfirmationAndMasksReplyAddress() {
+        ToolDefinition contact = new ToolDefinition(
+                "contact.email_owner",
+                IntentType.CONTACT_EMAIL_OWNER,
+                "Send a message", RiskLevel.SAFE_WRITE, true,
+                Set.of("email", "message"), Set.of("name"));
+
+        PolicyGuard.PolicyDecision decision = guard.check(
+                contact,
+                Map.of("email", "visitor@example.com", "message", "Hello world"),
+                IntentRequest.builder().sessionId("s1").utterance("send it").build());
+
+        assertThat(decision.isAllowed()).isTrue();
+        assertThat(decision.isRequiresConfirmation()).isTrue();
+        assertThat(decision.getPreview())
+                .contains("v***@example.com", "Hello world")
+                .doesNotContain("visitor@example.com");
+    }
 }

@@ -49,6 +49,7 @@ agent:
       clarify-threshold: ${MCP_INTENT_CONFIDENCE_CLARIFY_THRESHOLD:0.65}
     pending-action:
       ttl-seconds: ${MCP_PENDING_ACTION_TTL_S:300}
+      decision-confidence: ${MCP_PENDING_ACTION_DECISION_CONFIDENCE:0.80}
 
   memory:
     ttl-seconds: ${AGENT_MEMORY_TTL_SECONDS:1800}

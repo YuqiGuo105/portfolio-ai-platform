@@ -397,6 +397,27 @@ tools:
       method: POST
       path: /api/subscriptions/unsubscribe-verification
 
+  # ── Public contact ────────────────────────────────────────────────────
+  - name: contact.email_owner
+    mode: WRITE
+    description: Send a visitor's one-off message to the portfolio owner.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: true
+    note: |
+      The caller must explicitly confirm before execution. The downstream
+      endpoint sends only to the configured owner; the visitor address is
+      used as reply-to and never as a recipient.
+    parameters:
+      - { name: email,   type: string, required: true,  description: "Visitor reply-to email." }
+      - { name: message, type: string, required: true,  description: "Message body for the site owner." }
+      - { name: name,    type: string, required: false, description: "Optional visitor display name." }
+    endpoint:
+      target: portfolio
+      method: POST
+      path: /api/contact
+
   - name: subscription.confirm_unsubscribe
     mode: WRITE
     description: Verify the emailed code and change subscription status to UNSUBSCRIBED. Never deletes subscriber data.

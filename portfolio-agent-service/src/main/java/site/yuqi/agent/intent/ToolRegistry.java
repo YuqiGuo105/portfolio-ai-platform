@@ -94,6 +94,17 @@ public class ToolRegistry {
                 Set.of("startDate", "endDate", "timeRangePreset")
         ));
 
+        // ── Public contact ─────────────────────────────────────────────
+        register(new ToolDefinition(
+                "contact.email_owner",
+                IntentType.CONTACT_EMAIL_OWNER,
+                "Send a visitor's one-off message to the portfolio owner. The visitor email is used only as the reply-to address.",
+                RiskLevel.SAFE_WRITE,
+                true,
+                Set.of("email", "message"),
+                Set.of("name")
+        ));
+
         // ── Admin: write ────────────────────────────────────────────────
         register(new ToolDefinition(
                 "admin.create_content_draft",

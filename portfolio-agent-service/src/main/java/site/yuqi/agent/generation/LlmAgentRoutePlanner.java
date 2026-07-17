@@ -1,6 +1,7 @@
 package site.yuqi.agent.generation;
 
 import lombok.RequiredArgsConstructor;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import site.yuqi.agent.intent.IntentClassificationException;
 import site.yuqi.agent.intent.IntentClassifier;
@@ -22,6 +23,9 @@ public class LlmAgentRoutePlanner {
 
     private final IntentClassifier classifier;
     private final IntentValidator validator;
+
+    @Value("${agent.intent.pending-action.decision-confidence:0.80}")
+    private double pendingDecisionConfidence;
 
     public AgentRouteDecision plan(IntentRequest request) {
         IntentResult intent = classifier.classify(request);
@@ -46,7 +50,8 @@ public class LlmAgentRoutePlanner {
             case GENERAL_CHAT -> AgentRouteDecision.generalChat(intent,
                     nonBlank(intent.clarificationQuestion(),
                             "I can help with Yuqi's portfolio, site analytics, content operations, and support workflows."));
-            case UNKNOWN, CLARIFICATION_NEEDED -> AgentRouteDecision.clarify(intent,
+            case UNKNOWN, CLARIFICATION_NEEDED, PENDING_ACTION_CONFIRM,
+                    PENDING_ACTION_CANCEL, PENDING_ACTION_CLARIFY -> AgentRouteDecision.clarify(intent,
                     nonBlank(validation.getMessage(),
                             nonBlank(intent.clarificationQuestion(), "Could you clarify what you need?")));
             default -> switch (validation.getStatus()) {
@@ -61,11 +66,57 @@ public class LlmAgentRoutePlanner {
         };
     }
 
+    /**
+     * Classifies a reply to a staged write without using language-specific
+     * keyword rules. Only an explicit, high-confidence authorization or
+     * cancellation is actionable; every other result preserves the pending
+     * action and asks the user to clarify.
+     */
+    public PendingActionDecision planPendingAction(IntentRequest request) {
+        IntentResult intent = classifier.classify(request);
+        if (intent.confidence() < pendingDecisionConfidence) {
+            return PendingActionDecision.clarify(intent,
+                    nonBlank(intent.clarificationQuestion(),
+                            "Please clearly confirm or cancel the pending action."));
+        }
+        return switch (intent.intent()) {
+            case PENDING_ACTION_CONFIRM -> PendingActionDecision.confirm(intent);
+            case PENDING_ACTION_CANCEL -> PendingActionDecision.cancel(intent);
+            case PENDING_ACTION_CLARIFY, CLARIFICATION_NEEDED, UNKNOWN ->
+                    PendingActionDecision.clarify(intent,
+                            nonBlank(intent.clarificationQuestion(),
+                                    "Please clearly confirm or cancel the pending action."));
+            default -> PendingActionDecision.clarify(intent,
+                    nonBlank(intent.clarificationQuestion(),
+                            "A pending action still needs your confirmation or cancellation."));
+        };
+    }
+
     public AgentRouteDecision classificationError(IntentClassificationException e) {
         return AgentRouteDecision.clarify(null, "I could not route that request safely: " + e.getMessage());
     }
 
     private static String nonBlank(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
+    }
+
+    public enum PendingActionDecisionType { CONFIRM, CANCEL, CLARIFY }
+
+    public record PendingActionDecision(
+            PendingActionDecisionType type,
+            IntentResult intent,
+            String message) {
+
+        static PendingActionDecision confirm(IntentResult intent) {
+            return new PendingActionDecision(PendingActionDecisionType.CONFIRM, intent, null);
+        }
+
+        static PendingActionDecision cancel(IntentResult intent) {
+            return new PendingActionDecision(PendingActionDecisionType.CANCEL, intent, null);
+        }
+
+        static PendingActionDecision clarify(IntentResult intent, String message) {
+            return new PendingActionDecision(PendingActionDecisionType.CLARIFY, intent, message);
+        }
     }
 }

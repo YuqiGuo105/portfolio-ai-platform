@@ -146,6 +146,43 @@ public class AgentPipelineService {
                         handleBlockedInput(sink, request, question, sessionId, runId, pipelineStart, inputSafety);
                         return;
                     }
+
+                    if (request.getConfirm() == null) {
+                        String decisionStageId = stageId(runId, "confirmation_decision");
+                        sink.next(stageStarted("confirmation_decision",
+                                "Understanding your response...", decisionStageId));
+                        long decisionStart = System.currentTimeMillis();
+                        LlmAgentRoutePlanner.PendingActionDecision decision;
+                        try {
+                            decision = routePlanner.planPendingAction(intentRequest);
+                        } catch (IntentClassificationException e) {
+                            String message = alignAnswer(question,
+                                    "Please clearly confirm or cancel the pending action.");
+                            IntentResponse response = IntentResponse.confirmation(
+                                    message, request.getPendingActionId(), null);
+                            sink.next(stageCompleted("confirmation_decision",
+                                    "A clearer decision is needed", decisionStageId,
+                                    (int) (System.currentTimeMillis() - decisionStart),
+                                    Map.of("decision", "CLARIFY")));
+                            handleToolResponse(sink, request, response, runId, pipelineStart, question);
+                            return;
+                        }
+                        sink.next(stageCompleted("confirmation_decision",
+                                "Response understood", decisionStageId,
+                                (int) (System.currentTimeMillis() - decisionStart),
+                                Map.of("decision", decision.type().name())));
+                        if (decision.type() == LlmAgentRoutePlanner.PendingActionDecisionType.CLARIFY) {
+                            IntentResponse response = IntentResponse.confirmation(
+                                    nonBlank(decision.message(),
+                                            "Please clearly confirm or cancel the pending action."),
+                                    request.getPendingActionId(), decision.intent());
+                            handleToolResponse(sink, request, response, runId, pipelineStart, question);
+                            return;
+                        }
+                        intentRequest.setConfirm(
+                                decision.type() == LlmAgentRoutePlanner.PendingActionDecisionType.CONFIRM);
+                    }
+
                     sink.next(stageEvent("tool_execution", "Completing confirmed action..."));
                     IntentResponse response = intentOrchestrator.handle(intentRequest);
                     handleToolResponse(sink, request, response, runId, pipelineStart, question);
@@ -756,6 +793,9 @@ public class AgentPipelineService {
         if (result == null) {
             return isChinese(language) ? "已完成。" : "Done.";
         }
+        if (result instanceof Map<?, ?> map && map.get("message") != null) {
+            return String.valueOf(map.get("message"));
+        }
         if (isSubscriptionOtpWorkflow(response)) {
             if (result instanceof Map<?, ?> map && map.get("message") != null) {
                 return String.valueOf(map.get("message"));
@@ -803,7 +843,8 @@ public class AgentPipelineService {
         return response != null
                 && "OK".equals(response.getType())
                 && response.getIntent() != null
-                && isDirectRenderable(response.getResult());
+                && isDirectRenderable(response.getResult())
+                && !(response.getResult() instanceof Map<?, ?> map && map.get("message") != null);
     }
 
     private boolean isDirectRenderable(Object result) {

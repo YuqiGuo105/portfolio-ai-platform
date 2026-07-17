@@ -259,6 +259,7 @@ public class GeminiIntentClassifier implements IntentClassifier {
             16. ANALYTICS FOLLOW-UP (CRITICAL): If recentMessages show that an analytics tool was called or an analytics summary was returned (containing visitor counts, country breakdowns, device counts, or page view numbers), then follow-up questions asking for more detail — such as cities, devices, referrers, pages, sources — MUST route to the SAME analytics tool with the appropriate dimensions entity.
                 These are analytics follow-ups, NOT knowledge-base questions. NEVER route them to KNOWLEDGE_QA.
                 Examples of analytics follow-up phrases: "具体哪些城市？", "which cities?", "what devices?", "show me by city", "break it down", "city detail", "device breakdown", "referrer detail", "哪些城市和设备", "具体城市", "城市细节".
+            17. When pendingAction is present, classify the current utterance only as PENDING_ACTION_CONFIRM, PENDING_ACTION_CANCEL, or PENDING_ACTION_CLARIFY. Use targetTool=null, riskLevel=READ_ONLY, and requiresConfirmation=false. Choose CONFIRM or CANCEL only for an explicit, unambiguous user decision. Otherwise choose CLARIFY and provide a short clarificationQuestion in the user's language. Do not route to another tool while an action is pending.
 
             Allowed tools:
             %s
@@ -273,17 +274,6 @@ public class GeminiIntentClassifier implements IntentClassifier {
               → entities: { "dimensions": ["city", "deviceCategory"], "timeRangePreset": "recent" }
               → requiresConfirmation: true
               → DO NOT route this to KNOWLEDGE_QA. The assistant cannot know city-level analytics from the knowledge base.
-
-            Worked example (CONTACT use case):
-              utterance: "name: Alice\\nemail: alice@example.com\\nMessage: Hello world"
-              tool:      contact.email_owner  (requiredEntities: name, email, message)
-              entities:  { "name": "Alice", "email": "alice@example.com", "message": "Hello world" }
-              missingEntities: []
-
-              Multi-turn:
-                turn 1 (user, in recentMessages): "name: Alice, email: alice@example.com, message: Hello"
-                turn 2 (current utterance):       "send it"
-                → entities still { name, email, message } pulled from turn 1. DO NOT return CLARIFICATION_NEEDED.
 
             Output JSON schema (return EXACTLY these fields, no extras):
             {
@@ -307,6 +297,7 @@ public class GeminiIntentClassifier implements IntentClassifier {
     private String buildUserPrompt(IntentRequest request) {
         ObjectNode n = objectMapper.createObjectNode();
         n.put("utterance", request.getUtterance());
+        if (request.getPendingActionId() != null) n.put("pendingActionId", request.getPendingActionId());
         if (request.getUserRoles() != null) n.put("userRoles", request.getUserRoles());
         if (request.getPageContext() != null) {
             try {

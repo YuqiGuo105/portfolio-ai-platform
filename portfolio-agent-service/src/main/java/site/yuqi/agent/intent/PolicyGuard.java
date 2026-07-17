@@ -44,6 +44,8 @@ public class PolicyGuard {
             Map.entry("analytics.get_top_pages",           Role.VIEWER),
             Map.entry("analytics.get_referrer_summary",    Role.VIEWER),
 
+            Map.entry("contact.email_owner",               Role.VIEWER),
+
             Map.entry("notification.get_delivery_stats",   Role.VIEWER),
             Map.entry("notification.list_notifications",   Role.VIEWER),
             Map.entry("notification.list_failed_deliveries", Role.VIEWER),
@@ -65,6 +67,7 @@ public class PolicyGuard {
     );
 
     private static final Set<String> ANONYMOUS_SELF_SERVICE_TOOLS = Set.of(
+            "contact.email_owner",
             "subscription.request_unsubscribe_code",
             "subscription.confirm_unsubscribe"
     );
@@ -137,6 +140,9 @@ public class PolicyGuard {
             case ANALYTICS_GET_VISITOR_SUMMARY, ANALYTICS_GET_TOP_PAGES, ANALYTICS_GET_REFERRER_SUMMARY ->
                     "Analyze aggregate analytics from " + args.get("startDate") + " to " + args.get("endDate")
                             + "? For privacy, I will only return aggregate metrics and suppress small buckets.";
+            case CONTACT_EMAIL_OWNER ->
+                    "Send this message to the site owner with " + maskEmail(args.get("email"))
+                            + " as the reply-to address? Message: " + previewText(args.get("message"));
             case SUBSCRIPTION_REQUEST_UNSUBSCRIBE_CODE ->
                     "Send an unsubscribe verification code to " + maskEmail(args.get("email")) + "?";
             case SUBSCRIPTION_CONFIRM_UNSUBSCRIBE ->
@@ -150,6 +156,12 @@ public class PolicyGuard {
         int at = email.indexOf('@');
         if (at <= 0) return "the supplied email address";
         return email.charAt(0) + "***" + email.substring(at);
+    }
+
+    private static String previewText(Object value) {
+        if (value == null) return "(empty)";
+        String text = String.valueOf(value).replace('\n', ' ').replace('\r', ' ').trim();
+        return text.length() <= 160 ? text : text.substring(0, 157) + "...";
     }
 
     @Data

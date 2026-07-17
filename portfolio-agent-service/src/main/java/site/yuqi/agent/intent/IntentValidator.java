@@ -77,6 +77,13 @@ public class IntentValidator {
                         .missingEntities(intent.missingEntities())
                         .build();
             }
+            case PENDING_ACTION_CONFIRM, PENDING_ACTION_CANCEL, PENDING_ACTION_CLARIFY -> {
+                return ValidationResult.builder()
+                        .status(Status.CLARIFY)
+                        .message(nonBlank(intent.clarificationQuestion(),
+                                "There is no pending action to resolve."))
+                        .build();
+            }
             default -> { /* fall through to tool-bound validation */ }
         }
 

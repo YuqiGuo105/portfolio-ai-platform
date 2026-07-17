@@ -166,6 +166,75 @@ class AgentPipelineServiceRouteTest {
     }
 
     @Test
+    void pendingActionUsesLlmDecisionBeforeExecuting() {
+        IntentResult decisionIntent = new IntentResult(
+                IntentType.PENDING_ACTION_CONFIRM, null, 0.98,
+                "zh", null, Map.of(), RiskLevel.READ_ONLY,
+                false, List.of(), null);
+        IntentResult contactIntent = new IntentResult(
+                IntentType.CONTACT_EMAIL_OWNER, "contact.email_owner", 1.0,
+                "zh", null,
+                Map.of("email", "visitor@example.com", "message", "Hello world"),
+                RiskLevel.SAFE_WRITE, true, List.of(), null);
+        when(routePlanner.planPendingAction(any(IntentRequest.class)))
+                .thenReturn(new LlmAgentRoutePlanner.PendingActionDecision(
+                        LlmAgentRoutePlanner.PendingActionDecisionType.CONFIRM,
+                        decisionIntent, null));
+        when(intentOrchestrator.handle(any(IntentRequest.class)))
+                .thenReturn(IntentResponse.ok(contactIntent,
+                        Map.of("message", "Your message was sent to the site owner.")));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s1")
+                        .question("raw confirmation response")
+                        .pendingActionId("pending-contact")
+                        .build())
+                .collectList()
+                .block();
+
+        assertThat(events).isNotNull();
+        assertThat(events).extracting(event -> event.get("stage"))
+                .contains("confirmation_decision", "tool_execution", "tool_result", "answer_final", "done")
+                .doesNotContain("knowledge_retrieval");
+        ArgumentCaptor<IntentRequest> requestCaptor = ArgumentCaptor.forClass(IntentRequest.class);
+        verify(intentOrchestrator).handle(requestCaptor.capture());
+        assertThat(requestCaptor.getValue().getConfirm()).isTrue();
+        verify(knowledgeClient, never()).search(anyString(), anyInt());
+    }
+
+    @Test
+    void unclearPendingDecisionPreservesPendingAction() {
+        IntentResult decisionIntent = new IntentResult(
+                IntentType.PENDING_ACTION_CLARIFY, null, 0.95,
+                "zh", null, Map.of(), RiskLevel.READ_ONLY,
+                false, List.of(), "请明确确认或取消该操作。");
+        when(routePlanner.planPendingAction(any(IntentRequest.class)))
+                .thenReturn(new LlmAgentRoutePlanner.PendingActionDecision(
+                        LlmAgentRoutePlanner.PendingActionDecisionType.CLARIFY,
+                        decisionIntent, "请明确确认或取消该操作。"));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s1")
+                        .question("ambiguous response")
+                        .pendingActionId("pending-contact")
+                        .build())
+                .collectList()
+                .block();
+
+        assertThat(events).isNotNull();
+        Map<String, Object> finalEvent = events.stream()
+                .filter(event -> "answer_final".equals(event.get("stage")))
+                .findFirst()
+                .orElseThrow();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) finalEvent.get("payload");
+        assertThat(payload)
+                .containsEntry("pendingActionId", "pending-contact")
+                .containsEntry("responseType", "CONFIRMATION_REQUIRED");
+        verify(intentOrchestrator, never()).handle(any(IntentRequest.class));
+    }
+
+    @Test
     void clarifyRouteRecordsTheFinalAnswerBeforeRunCompletion() {
         IntentResult intent = analyticsIntent();
         when(routePlanner.plan(any(IntentRequest.class)))

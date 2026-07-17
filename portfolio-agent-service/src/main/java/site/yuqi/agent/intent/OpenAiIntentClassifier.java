@@ -224,6 +224,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             13. For analytics ranges shorter than 7 days, expand to a 7-day window ending on the requested end date and set requiresConfirmation=true.
             14. Unsubscribe is a status change, never a hard delete. First route to subscription.request_unsubscribe_code with email. When the current utterance contains a 6-digit code and a prior trusted tool result contains verificationId, route to subscription.confirm_unsubscribe with both values. Never expose or repeat the code in prose.
             15. When the user asks for an inference or estimate about Yuqi that can be responsibly derived from public portfolio context, route to KNOWLEDGE_QA rather than UNKNOWN. Select responsePolicy=PUBLIC_ESTIMATE and the appropriate constraints from PUBLIC_CONTEXT_ONLY, LABEL_AS_ESTIMATE, STATE_ASSUMPTIONS, and NO_PRIVATE_RECORD_CLAIM. If a material variable is missing, ask one specific clarification question in the user's language. Do not use keyword rules; decide from the request's semantic meaning.
+            16. When pendingAction is present, classify the current utterance only as PENDING_ACTION_CONFIRM, PENDING_ACTION_CANCEL, or PENDING_ACTION_CLARIFY. Use targetTool=null, riskLevel=READ_ONLY, and requiresConfirmation=false. Choose CONFIRM or CANCEL only for an explicit, unambiguous user decision. Otherwise choose CLARIFY and provide a short clarificationQuestion in the user's language. Do not route to another tool while an action is pending.
 
             Allowed tools:
             %s
@@ -250,10 +251,26 @@ public class OpenAiIntentClassifier implements IntentClassifier {
     private String buildUserPrompt(IntentRequest request) {
         ObjectNode n = objectMapper.createObjectNode();
         n.put("utterance", request.getUtterance());
+        if (request.getPendingActionId() != null) n.put("pendingActionId", request.getPendingActionId());
         if (request.getUserRoles() != null) n.put("userRoles", request.getUserRoles());
         if (request.getPageContext() != null) {
             try {
                 n.set("pageContext", objectMapper.valueToTree(request.getPageContext()));
+            } catch (Exception ignored) { /* best-effort hint */ }
+        }
+        if (request.getCompactSummary() != null && !request.getCompactSummary().isEmpty()) {
+            try {
+                n.set("compactSummary", objectMapper.valueToTree(request.getCompactSummary()));
+            } catch (Exception ignored) { /* best-effort hint */ }
+        }
+        if (request.getStructuredState() != null && !request.getStructuredState().isEmpty()) {
+            try {
+                n.set("structuredState", objectMapper.valueToTree(request.getStructuredState()));
+            } catch (Exception ignored) { /* best-effort hint */ }
+        }
+        if (request.getPendingActionContext() != null && !request.getPendingActionContext().isEmpty()) {
+            try {
+                n.set("pendingAction", objectMapper.valueToTree(request.getPendingActionContext()));
             } catch (Exception ignored) { /* best-effort hint */ }
         }
         // Include conversation history so the classifier can extract entities

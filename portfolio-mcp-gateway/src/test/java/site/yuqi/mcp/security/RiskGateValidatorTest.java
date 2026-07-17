@@ -78,4 +78,22 @@ class RiskGateValidatorTest {
 
         assertThat(outcome.allowed()).isTrue();
     }
+
+    @Test
+    void contactWriteRequiresExplicitConfirmation() {
+        ToolDefinition contact = ToolDefinition.builder()
+                .name("contact.email_owner")
+                .mode(ToolMode.WRITE)
+                .riskLevel(RiskLevel.LOW)
+                .confirmRequired(true)
+                .build();
+
+        assertThat(validator.check(contact, Map.of(
+                "email", "visitor@example.com",
+                "message", "Hello world")).allowed()).isFalse();
+        assertThat(validator.check(contact, Map.of(
+                "email", "visitor@example.com",
+                "message", "Hello world",
+                "_confirmed", true)).allowed()).isTrue();
+    }
 }
