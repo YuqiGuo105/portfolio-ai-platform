@@ -251,7 +251,19 @@ class AgentPipelineServiceRouteTest {
 
         assertThat(events).isNotNull();
         assertThat(events).extracting(event -> event.get("stage"))
-                .contains("knowledge_retrieval", "reasoning_step", "sources_found", "answer_final", "done");
+                .contains("knowledge_retrieval", "web_research", "reasoning_step", "sources_found", "answer_final", "done");
+        List<Map<String, Object>> webResearchEvents = events.stream()
+                .filter(event -> "web_research".equals(event.get("stage")))
+                .toList();
+        assertThat(webResearchEvents).hasSize(2);
+        assertThat(webResearchEvents).extracting(event -> event.get("status"))
+                .containsExactly("started", "completed");
+        assertThat(webResearchEvents.get(1).get("stageId"))
+                .isEqualTo(webResearchEvents.get(0).get("stageId"));
+        @SuppressWarnings("unchecked")
+        Map<String, Object> webResearchPayload =
+                (Map<String, Object>) webResearchEvents.get(1).get("payload");
+        assertThat(webResearchPayload).containsEntry("sourcesFound", 1);
         var promptCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
         verify(generationService).streamGenerateGrounded(anyString(), promptCaptor.capture());
         assertThat(promptCaptor.getValue())

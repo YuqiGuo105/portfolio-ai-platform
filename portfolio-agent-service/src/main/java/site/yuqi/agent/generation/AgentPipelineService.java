@@ -252,8 +252,8 @@ public class AgentPipelineService {
                 }
 
                 if (deepMode) {
-                    sink.next(reasoningStep("理解问题并制定搜索方向",
-                            "将结合站内资料与最新公开网页进行核验。", false));
+                    sink.next(reasoningStep("Plan the research",
+                            "Identify the facts needed and the best sources to verify them.", false));
                 }
 
                 // Stage 2: Knowledge retrieval
@@ -299,23 +299,31 @@ public class AgentPipelineService {
                         "Found " + chunkCount + " relevant chunks",
                         retrievalStageId, retrievalLatency, Map.of("chunksFound", chunkCount)));
                 if (deepMode) {
-                    sink.next(reasoningStep("理解问题并制定搜索方向",
-                            "已确定需要核验的关键信息。", true));
-                    sink.next(reasoningStep("搜索公开资料",
+                    sink.next(reasoningStep("Plan the research",
+                            "The evidence needed for a direct answer is clear.", true));
+                    sink.next(reasoningStep("Search relevant sources",
                             chunkCount > 0
-                                    ? "已读取 " + chunkCount + " 条相关站内资料，正在搜索公开网页。"
-                                    : "站内资料不足，正在搜索公开网页补充信息。", false));
+                                    ? "Reviewed " + chunkCount + " relevant portfolio sources; now checking public sources."
+                                    : "No relevant portfolio evidence was found; now checking public sources.", false));
                 }
 
                 // Stage 3: Build prompt with context + conversation history
-                String generationStageId = stageId(runId, "generating");
-                sink.next(stageStarted("generating", "Preparing a grounded answer...", generationStageId));
+                String generationStage = deepMode ? "web_research" : "generating";
+                String generationStageId = stageId(runId, generationStage);
+                sink.next(stageStarted(generationStage,
+                        deepMode
+                                ? "Searching and verifying public sources..."
+                                : "Preparing a grounded answer...",
+                        generationStageId));
                 String userPrompt = buildUserPrompt(
                         question, contextChunks, request, plannerContext, routeDecision.intent(), inputSafety);
                 if (deepMode) {
                     userPrompt += """
 
                             ## Deep Research Instructions
+                            Treat the supplied Knowledge Base Context as the primary evidence about Yuqi, his work,
+                            projects, education, writing, and personal background. Use Google Search to supplement or
+                            update it when needed, not to replace stronger first-party portfolio evidence.
                             Use Google Search to find current, specific public information relevant to the question.
                             Cross-check important claims across reliable sources when possible. Prefer official and
                             primary sources. Infer which facts and output fields are needed from the user's question,
@@ -324,8 +332,12 @@ public class AgentPipelineService {
                             for it themselves before attempting web research. Answer the question directly from the
                             verified search results. Include concrete details when supported, and state what could not
                             be verified instead of filling gaps with invented information.
+                            Before attributing a web result to a person or organization, verify that identifying
+                            attributes in the source match the subject in the question. A matching name alone is not
+                            sufficient evidence. If identity cannot be established, do not use that result as evidence.
                             Clearly distinguish verified facts from estimates or inference. Never claim access to
-                            private records. Include concise Markdown source links for claims based on the web.
+                            private records. Source cards are rendered separately from grounding metadata, so keep the
+                            answer focused and do not append a duplicate sources section.
                             """;
                 }
 
@@ -348,13 +360,19 @@ public class AgentPipelineService {
                             String fullAnswer = answerBuf.toString();
                             String finalAnswer = fullAnswer.trim();
                             int generationLatency = (int) (System.currentTimeMillis() - generationStart);
-                            sink.next(stageCompleted("generating", "Answer draft completed", generationStageId,
-                                    generationLatency, Map.of("outputLength", fullAnswer.length())));
+                            sink.next(stageCompleted(generationStage,
+                                    deepMode ? "Public sources searched and verified" : "Answer draft completed",
+                                    generationStageId,
+                                    generationLatency,
+                                    Map.of(
+                                            "outputLength", fullAnswer.length(),
+                                            "sourcesFound", groundedSources.size())));
                             if (deepMode) {
-                                sink.next(reasoningStep("搜索公开资料",
-                                        "已找到 " + groundedSources.size() + " 个可引用网页来源。", true));
-                                sink.next(reasoningStep("核验并综合结果",
-                                        "正在区分已证实信息、合理估算与无法确认的内容。", false));
+                                sink.next(reasoningStep("Search relevant sources",
+                                        "Found " + groundedSources.size() + " citable public source"
+                                                + (groundedSources.size() == 1 ? "." : "s."), true));
+                                sink.next(reasoningStep("Verify and synthesize",
+                                        "Separate verified facts from estimates and unresolved information.", false));
                                 if (!groundedSources.isEmpty()) {
                                     sink.next(sourcesFoundEvent(groundedSources.values().stream().toList()));
                                 }
@@ -404,8 +422,8 @@ public class AgentPipelineService {
                                     (int) (System.currentTimeMillis() - outputSafetyStart),
                                     Map.of("verdict", outputSafety.verdict().name())));
                             if (deepMode) {
-                                sink.next(reasoningStep("核验并综合结果",
-                                        "核验完成，已整理为可读答案并附上来源。", true));
+                                sink.next(reasoningStep("Verify and synthesize",
+                                        "Verification complete; the answer and supporting sources are ready.", true));
                             }
 
                             if (outputSafety.verdict() == SafetyVerdict.BLOCK) {
@@ -458,7 +476,9 @@ public class AgentPipelineService {
                         })
                         .doOnError(e -> {
                             log.error("Generation failed for session={}", sessionId, e);
-                            sink.next(stageCompleted("generating", "Answer generation failed", generationStageId,
+                            sink.next(stageCompleted(generationStage,
+                                    deepMode ? "Web research failed" : "Answer generation failed",
+                                    generationStageId,
                                     (int) (System.currentTimeMillis() - generationStart),
                                     Map.of("status", "failed")));
 
