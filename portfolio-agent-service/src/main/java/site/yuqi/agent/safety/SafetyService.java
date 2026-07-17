@@ -52,6 +52,12 @@ public class SafetyService {
               uncertainty, or permission constraints. Downstream planning will decide the response policy.
             - BLOCK only when the request clearly asks the system to perform a harmful or illegal action,
               bypass safeguards, or access, retrieve, manipulate, or disclose protected non-public systems or data.
+            - A request to use an ordinary, bounded product capability is not harmful merely because it can create
+              an external side effect. Authorization, confirmation, parameter validation, idempotency, and audit
+              are downstream controls. Use PASS or WARN unless the requested objective itself is clearly prohibited
+              or the user is asking to evade those controls.
+            - Do not infer malicious intent from the presence of an action verb, destination, user-supplied content,
+              or contact information alone. Evaluate the requested objective and authorization context together.
             - Distinguish discussion, analysis, inference, and hypothetical reasoning from an instruction to
               acquire or expose protected information.
             - Require strong semantic evidence for BLOCK. When the evidence does not clearly establish prohibited
@@ -118,7 +124,7 @@ public class SafetyService {
     @Value("${safety.enabled:true}")
     private boolean enabled;
 
-    @Value("${safety.input.block-confidence-threshold:0.90}")
+    @Value("${safety.input.block-confidence-threshold:0.95}")
     private double inputBlockConfidenceThreshold;
 
     @Value("${safety.timeout-ms:10000}")
@@ -129,7 +135,7 @@ public class SafetyService {
 
     public SafetyCheckResult checkInput(String userMessage, UUID runId) {
         if (!enabled) return pass("input");
-        return classify("input", "input_safety_v2", INPUT_SAFETY_PROMPT,
+        return classify("input", "input_safety_v3", INPUT_SAFETY_PROMPT,
                 "User input:\n" + safeText(userMessage), runId, true);
     }
 

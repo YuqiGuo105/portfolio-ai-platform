@@ -143,7 +143,7 @@ safety:
   thinking-budget: ${SAFETY_THINKING_BUDGET:0}
   input:
     # A model-selected BLOCK below this confidence is downgraded to WARN.
-    block-confidence-threshold: ${INPUT_SAFETY_BLOCK_CONFIDENCE_THRESHOLD:0.90}
+    block-confidence-threshold: ${INPUT_SAFETY_BLOCK_CONFIDENCE_THRESHOLD:0.95}
   # Confidence below this triggers handoff
   handoff-confidence-threshold: ${HANDOFF_CONFIDENCE_THRESHOLD:0.4}
   # Risk levels that force handoff (comma-separated)

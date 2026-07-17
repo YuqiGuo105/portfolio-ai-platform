@@ -17,7 +17,7 @@ class SafetyServiceTest {
     @BeforeEach
     void setUp() {
         service = new SafetyService(WebClient.builder(), mock(EventRecorder.class), new ObjectMapper());
-        ReflectionTestUtils.setField(service, "inputBlockConfidenceThreshold", 0.90);
+        ReflectionTestUtils.setField(service, "inputBlockConfidenceThreshold", 0.95);
     }
 
     @Test
@@ -78,5 +78,23 @@ class SafetyServiceTest {
 
         assertThat(result.verdict()).isEqualTo(SafetyVerdict.BLOCK);
         assertThat(result.confidence()).isEqualTo(0.97);
+    }
+
+    @Test
+    void downgradesBorderlineActionBlockForDownstreamPolicyReview() throws Exception {
+        SafetyCheckResult raw = service.parseModelResult("""
+                {
+                  "verdict": "BLOCK",
+                  "category": "HARMFUL_ACTION",
+                  "confidence": 0.90,
+                  "reason": "The request creates an external side effect.",
+                  "constraints": []
+                }
+                """, "input");
+
+        SafetyCheckResult result = service.enforceInputBlockThreshold(raw);
+
+        assertThat(result.verdict()).isEqualTo(SafetyVerdict.WARN);
+        assertThat(result.constraints()).contains("DOWNSTREAM_POLICY_REVIEW");
     }
 }
