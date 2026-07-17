@@ -43,6 +43,18 @@ class SupabaseJwtAuthFilterTest {
     }
 
     @Test
+    void adminApiRequiresBearer() throws Exception {
+        SupabaseJwtAuthFilter f = new SupabaseJwtAuthFilter(SECRET, INTERNAL, "", false, false);
+        MockHttpServletRequest req = new MockHttpServletRequest("GET", "/api/admin/conversations");
+        req.setRequestURI("/api/admin/conversations");
+        MockHttpServletResponse resp = new MockHttpServletResponse();
+        MockFilterChain chain = new MockFilterChain();
+        f.doFilter(req, resp, chain);
+        assertThat(resp.getStatus()).isEqualTo(401);
+        assertThat(chain.getRequest()).isNull();
+    }
+
+    @Test
     void missingBearerAllowedWhenAnonymousEnabled() throws Exception {
         SupabaseJwtAuthFilter f = new SupabaseJwtAuthFilter("", "", "", true, false);
         MockHttpServletRequest req = post("/api/intent", null);
