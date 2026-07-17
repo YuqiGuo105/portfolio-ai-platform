@@ -117,7 +117,7 @@ spring.flyway:
 # ─── OpenSearch (outbox → log index sync) ────────────────────────────────
 observability:
   opensearch:
-    url: ${OPENSEARCH_URL:https://os-b4cbaea-yuqi-791c.a.aivencloud.com:27099}
+    url: ${OPENSEARCH_URL:https://os-79250b0-yguo105-17e7.l.aivencloud.com:22949}
     username: ${OPENSEARCH_USERNAME:avnadmin}
     password: ${OPENSEARCH_PASSWORD:}
   outbox:
