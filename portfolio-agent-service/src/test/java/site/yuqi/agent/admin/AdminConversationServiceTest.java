@@ -91,6 +91,27 @@ class AdminConversationServiceTest {
     }
 
     @Test
+    void doesNotCountForbiddenRunsAsCompleted() {
+        Instant base = Instant.parse("2026-07-17T01:00:00Z");
+        when(repository.findRunEvents(any(Instant.class), anyString(), anyInt())).thenReturn(List.of(
+                row("agent_run", base, """
+                        {"eventType":"agent_run.started","runId":"run-forbidden","status":"running",
+                         "payload":{"question":"Run an unauthorized tool"}}
+                        """),
+                row("agent_run", base.plusMillis(50), """
+                        {"eventType":"agent_run.completed","runId":"run-forbidden","status":"forbidden",
+                         "latencyMs":50,"payload":{"finalStatus":"forbidden"}}
+                        """)));
+
+        AdminConversationService.ConversationResponse response = service.list("", 24, 10);
+
+        assertThat(response.summary().runs()).isEqualTo(1);
+        assertThat(response.summary().completed()).isZero();
+        assertThat(response.summary().blocked()).isZero();
+        assertThat(response.summary().averageLatencyMs()).isNull();
+    }
+
+    @Test
     void treatsPlannerOutcomeAsCompletedLifecycleAndRoute() {
         Instant base = Instant.parse("2026-07-17T01:00:00Z");
         when(repository.findRunEvents(any(Instant.class), anyString(), anyInt())).thenReturn(List.of(

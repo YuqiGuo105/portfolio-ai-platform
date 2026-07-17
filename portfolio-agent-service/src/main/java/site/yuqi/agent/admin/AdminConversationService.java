@@ -21,6 +21,14 @@ import java.util.Set;
 @RequiredArgsConstructor
 public class AdminConversationService {
 
+    private static final Set<String> UNSUCCESSFUL_TERMINAL_STATUSES = Set.of(
+            "blocked",
+            "failed",
+            "budget_exhausted",
+            "forbidden",
+            "unauthorized",
+            "rate_limited",
+            "cancelled");
     private static final int DEFAULT_HOURS = 24 * 7;
     private static final int MAX_HOURS = 24 * 30;
     private static final int DEFAULT_LIMIT = 50;
@@ -110,7 +118,7 @@ public class AdminConversationService {
     private boolean isCompleted(ConversationRun run) {
         if (run.completedAt() == null) return false;
         String status = valueOr(run.status(), "").toLowerCase(Locale.ROOT);
-        return !Set.of("blocked", "failed", "budget_exhausted").contains(status);
+        return !UNSUCCESSFUL_TERMINAL_STATUSES.contains(status);
     }
 
     private Map<String, Object> detail(JsonNode payload) {
