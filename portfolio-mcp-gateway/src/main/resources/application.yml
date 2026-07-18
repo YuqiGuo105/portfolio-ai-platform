@@ -54,7 +54,7 @@ domain:
     internal-token: ${ANALYTICS_INTERNAL_TOKEN:}
     timeout-ms: ${ANALYTICS_TIMEOUT_MS:15000}
   alerts:
-    base-url: ${ALERTS_SERVICE_BASE_URL:https://analytics-alerts-service-702193211434.us-central1.run.app}
+    base-url: ${ALERTS_SERVICE_BASE_URL:https://portfolio-analytics-alerts-702193211434.us-central1.run.app}
     internal-token: ${ALERTS_INTERNAL_TOKEN:}
     timeout-ms: ${ALERTS_TIMEOUT_MS:15000}
 

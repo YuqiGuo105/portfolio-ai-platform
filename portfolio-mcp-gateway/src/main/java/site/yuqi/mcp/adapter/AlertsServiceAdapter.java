@@ -44,7 +44,7 @@ public class AlertsServiceAdapter extends AbstractHttpAdapter {
     @Override
     protected void decorate(WebClient.RequestHeadersSpec<?> spec, java.util.Map<String, Object> args) {
         if (internalToken != null && !internalToken.isBlank()) {
-            spec.header("Authorization", "Bearer " + internalToken);
+            spec.header("X-Internal-Token", internalToken);
         }
     }
 }
