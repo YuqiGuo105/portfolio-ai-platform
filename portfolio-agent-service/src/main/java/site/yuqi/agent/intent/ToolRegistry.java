@@ -5,6 +5,7 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Component;
 
 import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 import java.util.Optional;
 import java.util.Set;
@@ -120,7 +121,8 @@ public class ToolRegistry {
                 RiskLevel.READ_ONLY,
                 false,
                 Set.of("action", "patch", "reason"),
-                Set.of("ruleId")
+                Set.of("ruleId"),
+                alertChangeEntitySchema()
         ));
         register(new ToolDefinition(
                 "alerts.apply_change",
@@ -295,6 +297,31 @@ public class ToolRegistry {
         ));
 
         log.info("ToolRegistry initialized with {} tools", byName.size());
+    }
+
+    private static Map<String, Object> alertChangeEntitySchema() {
+        return Map.of(
+                "action", Map.of(
+                        "type", "string",
+                        "allowedValues", List.of("CREATE", "UPDATE", "SET_ENABLED")
+                ),
+                "ruleId", Map.of(
+                        "type", "integer",
+                        "requiredForActions", List.of("UPDATE", "SET_ENABLED")
+                ),
+                "patch", Map.of(
+                        "type", "object",
+                        "allowedProperties", List.of(
+                                "siteId", "name", "eventType", "geoLevel", "geoAreaId",
+                                "granularity", "threshold", "comparator", "cooldownSeconds", "enabled"
+                        ),
+                        "requiredForCreate", List.of(
+                                "siteId", "name", "eventType", "geoLevel", "granularity",
+                                "threshold", "comparator", "cooldownSeconds"
+                        )
+                ),
+                "reason", Map.of("type", "string", "nonBlank", true)
+        );
     }
 
     private void register(ToolDefinition def) {

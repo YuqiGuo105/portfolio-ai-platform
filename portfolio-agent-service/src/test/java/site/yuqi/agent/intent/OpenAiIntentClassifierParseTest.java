@@ -47,6 +47,18 @@ class OpenAiIntentClassifierParseTest {
     }
 
     @Test
+    void exposesCanonicalNestedEntitySchemaInPlannerPrompt() {
+        ToolDefinition definition = new ToolRegistryForTest().alertChangeTool();
+
+        assertThat(definition.entitySchema())
+                .containsKeys("action", "ruleId", "patch", "reason");
+        assertThat(definition.entitySchema().get("patch").toString())
+                .contains("siteId", "geoLevel", "cooldownSeconds");
+        assertThat(classifier.buildSystemPrompt())
+                .contains("entitySchema", "siteId", "geoLevel", "requiredForCreate");
+    }
+
+    @Test
     void parsesFailedDeliveriesExample() {
         String json = """
             {
@@ -189,5 +201,17 @@ class OpenAiIntentClassifierParseTest {
             """;
         IntentResult r = classifier.parseAndAllowlist(json);
         assertThat(r.intent()).isEqualTo(IntentType.UNKNOWN);
+    }
+
+    private static final class ToolRegistryForTest {
+        private final ToolRegistry registry = new ToolRegistry();
+
+        private ToolRegistryForTest() {
+            ReflectionTestUtils.invokeMethod(registry, "init");
+        }
+
+        private ToolDefinition alertChangeTool() {
+            return registry.find("alerts.prepare_change").orElseThrow();
+        }
     }
 }

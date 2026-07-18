@@ -175,7 +175,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
                 responsePolicy, responseConstraints, generationTier, progressMessage);
     }
 
-    private String buildSystemPrompt() {
+    String buildSystemPrompt() {
         ArrayNode toolsJson = objectMapper.createArrayNode();
         toolRegistry.all().values().forEach(t -> {
             ObjectNode n = toolsJson.addObject();
@@ -188,6 +188,9 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             t.requiredEntities().forEach(req::add);
             ArrayNode opt = n.putArray("optionalEntities");
             t.optionalEntities().forEach(opt::add);
+            if (!t.entitySchema().isEmpty()) {
+                n.set("entitySchema", objectMapper.valueToTree(t.entitySchema()));
+            }
         });
         String toolsBlock;
         try {
@@ -209,7 +212,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
                - Return KNOWLEDGE_QA with targetTool=null when the user asks a portfolio/site-content question best answered from the knowledge base.
                - Return HANDOFF_REQUESTED with targetTool=null when the user asks for a human, support agent, or manual escalation.
                - Return CLARIFICATION_NEEDED / GENERAL_CHAT / UNKNOWN when no tool or knowledge retrieval should run.
-            2. Extract entities from the user input. Use the entity keys exactly as named in requiredEntities / optionalEntities.
+            2. Extract entities from the user input. Use the entity keys exactly as named in requiredEntities / optionalEntities. When entitySchema is present, follow its canonical field names, nested shape, allowed values, and action-specific requirements exactly.
             3. Return JSON only. No prose, no markdown fences.
             4. Do NOT execute any action.
             5. Never invent opaque internal identifiers. Reuse them only from trusted conversation state or trusted prior tool results. Plain user-provided fields may be extracted from the current utterance or conversation history.

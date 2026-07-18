@@ -1,5 +1,6 @@
 package site.yuqi.agent.intent;
 
+import java.util.Map;
 import java.util.Set;
 
 /**
@@ -17,6 +18,9 @@ import java.util.Set;
  *                             {@link IntentResult#entities()} (or
  *                             missingEntities) before execution
  * @param optionalEntities     additional entities the LLM may extract
+ * @param entitySchema         optional declarative schema for nested entities;
+ *                             classifiers expose it to the LLM without adding
+ *                             route-specific prompt branches
  */
 public record ToolDefinition(
         String name,
@@ -25,5 +29,25 @@ public record ToolDefinition(
         RiskLevel riskLevel,
         boolean requiresConfirmation,
         Set<String> requiredEntities,
-        Set<String> optionalEntities
-) { }
+        Set<String> optionalEntities,
+        Map<String, Object> entitySchema
+) {
+    public ToolDefinition(
+            String name,
+            IntentType intent,
+            String description,
+            RiskLevel riskLevel,
+            boolean requiresConfirmation,
+            Set<String> requiredEntities,
+            Set<String> optionalEntities
+    ) {
+        this(name, intent, description, riskLevel, requiresConfirmation,
+                requiredEntities, optionalEntities, Map.of());
+    }
+
+    public ToolDefinition {
+        requiredEntities = requiredEntities == null ? Set.of() : Set.copyOf(requiredEntities);
+        optionalEntities = optionalEntities == null ? Set.of() : Set.copyOf(optionalEntities);
+        entitySchema = entitySchema == null ? Map.of() : Map.copyOf(entitySchema);
+    }
+}
