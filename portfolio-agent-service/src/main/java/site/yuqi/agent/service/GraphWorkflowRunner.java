@@ -4,6 +4,8 @@ import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
+import site.yuqi.agent.budget.BudgetDecision;
+import site.yuqi.agent.budget.ChatBudgetService;
 import site.yuqi.agent.conversation.ConversationContextLoader;
 import site.yuqi.agent.conversation.MemoryWriter;
 import site.yuqi.agent.conversation.PlannerContext;
@@ -14,6 +16,7 @@ import site.yuqi.agent.model.ChatRequest;
 import site.yuqi.agent.model.ChatStreamEvent;
 
 import java.util.List;
+import java.util.Map;
 
 /**
  * Bridges the streaming chat surface ({@link site.yuqi.agent.controller.ChatController})
@@ -32,6 +35,7 @@ public class GraphWorkflowRunner {
     private final IntentOrchestrator orchestrator;
     private final ConversationContextLoader contextLoader;
     private final MemoryWriter memoryWriter;
+    private final ChatBudgetService chatBudgetService;
 
     public Flux<ChatStreamEvent> run(ChatRequest request) {
         return Flux.create(sink -> {
@@ -40,6 +44,22 @@ public class GraphWorkflowRunner {
             String utterance = lastUserUtterance(request);
             if (utterance == null) {
                 sink.next(ChatStreamEvent.builder().type("error").payload("No user message provided.").build());
+                sink.complete();
+                return;
+            }
+
+            BudgetDecision budget = chatBudgetService.reserveChatRequest();
+            if (!budget.allowed()) {
+                log.warn("Chat budget denied session={} reason={}",
+                        request.getSessionId(), budget.reason());
+                sink.next(ChatStreamEvent.builder()
+                        .type("error")
+                        .payload(Map.of(
+                                "code", "CHAT_BUDGET_UNAVAILABLE",
+                                "message", "Chat is temporarily unavailable due to its configured AI usage limit.",
+                                "resetAt", budget.resetAt().toString()))
+                        .build());
+                sink.next(ChatStreamEvent.builder().type("done").build());
                 sink.complete();
                 return;
             }
