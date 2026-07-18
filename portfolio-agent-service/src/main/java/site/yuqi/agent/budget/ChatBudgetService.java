@@ -47,11 +47,8 @@ public class ChatBudgetService {
     @Value("${agent.budget.daily-usd-limit:0.75}")
     private BigDecimal dailyUsdLimit;
 
-    @Value("${agent.budget.per-request-reservation-usd:0.005}")
+    @Value("${agent.budget.per-request-reservation-usd:0.05}")
     private BigDecimal perRequestReservationUsd;
-
-    @Value("${agent.budget.deep-request-reservation-usd:0.03}")
-    private BigDecimal deepRequestReservationUsd;
 
     @Value("${agent.budget.zone:UTC}")
     private String budgetZone;
@@ -62,10 +59,6 @@ public class ChatBudgetService {
 
     public BudgetDecision reserveChatRequest() {
         return reserve(perRequestReservationUsd);
-    }
-
-    public BudgetDecision reserveDeepGeneration() {
-        return reserve(deepRequestReservationUsd);
     }
 
     private BudgetDecision reserve(BigDecimal reservationUsd) {

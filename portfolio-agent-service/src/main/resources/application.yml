@@ -62,8 +62,7 @@ agent:
   budget:
     enabled: ${AGENT_BUDGET_ENABLED:true}
     daily-usd-limit: ${AGENT_CHAT_DAILY_BUDGET_USD:0.75}
-    per-request-reservation-usd: ${AGENT_CHAT_REQUEST_RESERVATION_USD:0.005}
-    deep-request-reservation-usd: ${AGENT_DEEP_REQUEST_RESERVATION_USD:0.03}
+    per-request-reservation-usd: ${AGENT_CHAT_REQUEST_RESERVATION_USD:0.05}
     zone: ${AGENT_BUDGET_ZONE:UTC}
 
   sse:

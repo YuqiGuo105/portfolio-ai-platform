@@ -101,12 +101,6 @@ class AgentPipelineServiceRouteTest {
                 new BigDecimal("1.95"),
                 new BigDecimal("0.05"),
                 Instant.parse("2026-07-10T00:00:00Z")));
-        when(chatBudgetService.reserveDeepGeneration()).thenReturn(BudgetDecision.allowed(
-                new BigDecimal("2.00"),
-                new BigDecimal("0.08"),
-                new BigDecimal("1.92"),
-                new BigDecimal("0.03"),
-                Instant.parse("2026-07-10T00:00:00Z")));
     }
 
     @Test
@@ -143,7 +137,6 @@ class AgentPipelineServiceRouteTest {
                 .containsEntry("final", true)
                 .containsKey("durationMs")
                 .containsKey("stageId");
-        verify(chatBudgetService, never()).reserveDeepGeneration();
         verify(knowledgeClient, never()).search(anyString(), anyInt());
     }
 
@@ -413,40 +406,6 @@ class AgentPipelineServiceRouteTest {
                 .contains("be verified instead of filling gaps")
                 .doesNotContain("location questions", "cities or offices");
         verify(generationService, never()).streamGenerate(anyString(), anyString());
-    }
-
-    @Test
-    void deniedDeepReservationFallsBackToStandardGeneration() {
-        IntentResult intent = new IntentResult(
-                IntentType.KNOWLEDGE_QA, null, 0.93, "en", null,
-                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
-                "GROUNDED", List.of(), GenerationTier.DEEP, "Reviewing available evidence");
-        when(routePlanner.plan(any(IntentRequest.class)))
-                .thenReturn(AgentRouteDecision.knowledge(intent));
-        when(chatBudgetService.reserveDeepGeneration()).thenReturn(BudgetDecision.denied(
-                "deep_budget_exhausted",
-                new BigDecimal("0.75"),
-                new BigDecimal("0.75"),
-                BigDecimal.ZERO,
-                new BigDecimal("0.03"),
-                Instant.parse("2026-07-10T00:00:00Z")));
-        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
-        when(generationService.streamGenerate(anyString(), anyString()))
-                .thenReturn(reactor.core.publisher.Flux.just("A fast grounded answer."));
-
-        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
-                        .sessionId("s-deep-budget")
-                        .question("Synthesize the available public evidence.")
-                        .build())
-                .collectList().block();
-
-        assertThat(events).isNotNull();
-        assertThat(events).extracting(event -> event.get("stage"))
-                .contains("budget_check", "knowledge_retrieval", "generating", "answer_final", "done")
-                .doesNotContain("web_research");
-        verify(generationService).modelFor(false);
-        verify(generationService).streamGenerate(anyString(), anyString());
-        verify(generationService, never()).streamGenerateGrounded(anyString(), anyString());
     }
 
     private static IntentResult analyticsIntent() {

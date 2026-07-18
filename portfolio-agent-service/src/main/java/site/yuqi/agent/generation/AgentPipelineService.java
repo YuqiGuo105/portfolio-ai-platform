@@ -239,22 +239,9 @@ public class AgentPipelineService {
 
                 boolean generationRoute = routeDecision.route() == AgentRoute.KNOWLEDGE_QA
                         || routeDecision.route() == AgentRoute.GENERAL_CHAT;
-                boolean deepRequested = generationRoute && (explicitDeepMode
+                boolean deepMode = generationRoute && (explicitDeepMode
                         || (routeDecision.intent() != null
                         && routeDecision.intent().generationTier() == GenerationTier.DEEP));
-                BudgetDecision deepBudgetDecision = deepRequested
-                        ? chatBudgetService.reserveDeepGeneration()
-                        : null;
-                boolean deepMode = deepRequested
-                        && deepBudgetDecision != null
-                        && deepBudgetDecision.allowed();
-                if (deepRequested && !deepMode) {
-                    sink.next(stageEvent("budget_check",
-                            "Deep research budget reached; continuing with a fast answer",
-                            deepBudgetDecision != null
-                                    ? budgetPayload(deepBudgetDecision)
-                                    : Map.of("reason", "deep_budget_unavailable")));
-                }
                 String selectedGenerationModel = generationService.modelFor(deepMode);
 
                 switch (routeDecision.route()) {

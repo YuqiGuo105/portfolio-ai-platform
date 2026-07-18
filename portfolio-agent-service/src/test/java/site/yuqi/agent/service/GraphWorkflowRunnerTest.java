@@ -34,7 +34,7 @@ class GraphWorkflowRunnerTest {
                 new BigDecimal("0.75"),
                 new BigDecimal("0.75"),
                 BigDecimal.ZERO,
-                new BigDecimal("0.005"),
+                new BigDecimal("0.05"),
                 resetAt));
 
         GraphWorkflowRunner runner = new GraphWorkflowRunner(
