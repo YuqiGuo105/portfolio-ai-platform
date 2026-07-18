@@ -44,6 +44,11 @@ public class PolicyGuard {
             Map.entry("analytics.get_top_pages",           Role.VIEWER),
             Map.entry("analytics.get_referrer_summary",    Role.VIEWER),
 
+            Map.entry("alerts.list_rules",                 Role.ADMIN),
+            Map.entry("alerts.get_rule",                   Role.ADMIN),
+            Map.entry("alerts.prepare_change",             Role.ADMIN),
+            Map.entry("alerts.apply_change",               Role.ADMIN),
+
             Map.entry("contact.email_owner",               Role.VIEWER),
 
             Map.entry("notification.get_delivery_stats",   Role.VIEWER),
@@ -140,6 +145,8 @@ public class PolicyGuard {
             case ANALYTICS_GET_VISITOR_SUMMARY, ANALYTICS_GET_TOP_PAGES, ANALYTICS_GET_REFERRER_SUMMARY ->
                     "Analyze aggregate analytics from " + args.get("startDate") + " to " + args.get("endDate")
                             + "? For privacy, I will only return aggregate metrics and suppress small buckets.";
+            case ALERTS_APPLY_CHANGE ->
+                    "Apply prepared visitor alert policy change " + args.get("changeId") + "?";
             case CONTACT_EMAIL_OWNER ->
                     "Send this message to the site owner with " + maskEmail(args.get("email"))
                             + " as the reply-to address? Message: " + previewText(args.get("message"));

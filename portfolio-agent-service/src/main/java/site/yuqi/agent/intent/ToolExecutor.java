@@ -38,6 +38,9 @@ public class ToolExecutor {
         if (tool.name().startsWith("analytics.")) {
             invocationArgs.put("_confirmedTimeRange", true);
         }
+        if ("alerts.apply_change".equals(tool.name())) {
+            invocationArgs.put("idempotencyKey", idempotencyKey);
+        }
 
         auditService.logExecutionStart(req, tool.name(), invocationArgs);
 
@@ -45,6 +48,8 @@ public class ToolExecutor {
                 .name(tool.name())
                 .arguments(invocationArgs)
                 .idempotencyKey(idempotencyKey)
+                .actor(req.getUserEmail() != null ? req.getUserEmail() : req.getUserId())
+                .role(highestRole(req.getUserRoles()))
                 .build();
 
         ToolInvocation result;
@@ -66,5 +71,18 @@ public class ToolExecutor {
             return IntentResponse.error("Tool error: " + result.getError());
         }
         return IntentResponse.ok(intent, result.getResult());
+    }
+
+    private String highestRole(String roles) {
+        if (roles == null || roles.isBlank()) return null;
+        var normalized = java.util.Arrays.stream(roles.split(","))
+                .map(String::trim)
+                .map(String::toUpperCase)
+                .collect(java.util.stream.Collectors.toSet());
+        if (normalized.contains("ADMIN")) return "ADMIN";
+        if (normalized.contains("PUBLISHER")) return "PUBLISHER";
+        if (normalized.contains("EDITOR")) return "EDITOR";
+        if (normalized.contains("VIEWER")) return "VIEWER";
+        return null;
     }
 }

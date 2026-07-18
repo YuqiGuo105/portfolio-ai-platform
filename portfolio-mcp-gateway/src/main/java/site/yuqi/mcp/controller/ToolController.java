@@ -109,6 +109,9 @@ public class ToolController {
         }
 
         Map<String, Object> args = body == null ? new HashMap<>() : new HashMap<>(body);
+        if ("alerts.prepare_change".equals(tool.getName())) {
+            args.put("actor", actor == null || actor.isBlank() ? "authenticated-admin" : actor);
+        }
 
         // 1. Parameter validation
         ParameterValidator.ValidationResult pv = parameterValidator.validate(tool, args);

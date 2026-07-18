@@ -21,6 +21,8 @@ public class ToolInvocation {
     private String name;
     private Map<String, Object> arguments;
     private String idempotencyKey;
+    private String actor;
+    private String role;
 
     /** Filled in after the gateway responds. */
     private Map<String, Object> result;

@@ -94,6 +94,44 @@ public class ToolRegistry {
                 Set.of("startDate", "endDate", "timeRangePreset")
         ));
 
+        // ── Visitor alerts: admin policy management ───────────────────
+        register(new ToolDefinition(
+                "alerts.list_rules",
+                IntentType.ALERTS_LIST_RULES,
+                "List visitor behavior alert rules and their current policy state.",
+                RiskLevel.READ_ONLY,
+                false,
+                Set.of(),
+                Set.of("name", "eventType", "enabled")
+        ));
+        register(new ToolDefinition(
+                "alerts.get_rule",
+                IntentType.ALERTS_GET_RULE,
+                "Get one visitor behavior alert rule by ruleId.",
+                RiskLevel.READ_ONLY,
+                false,
+                Set.of("ruleId"),
+                Set.of()
+        ));
+        register(new ToolDefinition(
+                "alerts.prepare_change",
+                IntentType.ALERTS_PREPARE_CHANGE,
+                "Validate a CREATE, UPDATE, or SET_ENABLED alert policy change and return its diff without applying it.",
+                RiskLevel.READ_ONLY,
+                false,
+                Set.of("action", "patch", "reason"),
+                Set.of("ruleId")
+        ));
+        register(new ToolDefinition(
+                "alerts.apply_change",
+                IntentType.ALERTS_APPLY_CHANGE,
+                "Apply a non-expired alert policy change returned by alerts.prepare_change.",
+                RiskLevel.RISKY_WRITE,
+                true,
+                Set.of("changeId"),
+                Set.of()
+        ));
+
         // ── Public contact ─────────────────────────────────────────────
         register(new ToolDefinition(
                 "contact.email_owner",

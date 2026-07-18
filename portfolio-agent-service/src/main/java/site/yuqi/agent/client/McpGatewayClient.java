@@ -65,6 +65,12 @@ public class McpGatewayClient {
                     if (invocation.getIdempotencyKey() != null) {
                         h.add("Idempotency-Key", invocation.getIdempotencyKey());
                     }
+                    if (invocation.getActor() != null && !invocation.getActor().isBlank()) {
+                        h.add("X-Actor", invocation.getActor());
+                    }
+                    if (invocation.getRole() != null && !invocation.getRole().isBlank()) {
+                        h.add("X-Role", invocation.getRole());
+                    }
                 })
                 .bodyValue(args)
                 .retrieve()

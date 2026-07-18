@@ -96,4 +96,38 @@ class PolicyGuardAnalyticsTest {
                 .contains("v***@example.com", "Hello world")
                 .doesNotContain("visitor@example.com");
     }
+
+    @Test
+    void alertPolicyToolsRequireAdminAndApplyRequiresConfirmation() {
+        ToolDefinition prepare = new ToolDefinition(
+                "alerts.prepare_change",
+                IntentType.ALERTS_PREPARE_CHANGE,
+                "Prepare alert change", RiskLevel.READ_ONLY, false,
+                Set.of("action", "patch", "reason"), Set.of("ruleId"));
+        ToolDefinition apply = new ToolDefinition(
+                "alerts.apply_change",
+                IntentType.ALERTS_APPLY_CHANGE,
+                "Apply alert change", RiskLevel.RISKY_WRITE, true,
+                Set.of("changeId"), Set.of());
+
+        IntentRequest viewer = IntentRequest.builder()
+                .sessionId("viewer-session")
+                .utterance("change alert rule")
+                .userRoles("VIEWER")
+                .build();
+        IntentRequest admin = IntentRequest.builder()
+                .sessionId("admin-session")
+                .utterance("change alert rule")
+                .userRoles("VIEWER,EDITOR,PUBLISHER,ADMIN")
+                .build();
+
+        assertThat(guard.check(prepare, Map.of(), viewer).isAllowed()).isFalse();
+        assertThat(guard.check(prepare, Map.of(), admin).isAllowed()).isTrue();
+
+        PolicyGuard.PolicyDecision applyDecision = guard.check(
+                apply, Map.of("changeId", "chg_123"), admin);
+        assertThat(applyDecision.isAllowed()).isTrue();
+        assertThat(applyDecision.isRequiresConfirmation()).isTrue();
+        assertThat(applyDecision.getPreview()).contains("chg_123");
+    }
 }
