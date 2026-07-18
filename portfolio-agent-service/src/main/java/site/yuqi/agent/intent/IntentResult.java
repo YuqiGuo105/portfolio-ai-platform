@@ -29,6 +29,7 @@ import java.util.Set;
  * @param responsePolicy         LLM-selected answer policy; code propagates it
  *                               but does not infer it from user keywords
  * @param responseConstraints    LLM-selected constraints for generation
+ * @param generationTier         allowlisted model tier selected by the planner
  * @param progressMessage        short user-facing progress text in the input language
  */
 public record IntentResult(
@@ -44,6 +45,7 @@ public record IntentResult(
         String clarificationQuestion,
         String responsePolicy,
         List<String> responseConstraints,
+        GenerationTier generationTier,
         String progressMessage
 ) {
     private static final Set<String> ALLOWED_RESPONSE_POLICIES = Set.of(
@@ -65,7 +67,25 @@ public record IntentResult(
                         String clarificationQuestion) {
         this(intent, targetTool, confidence, language, normalizedQuery, entities, riskLevel,
                 requiresConfirmation, missingEntities, clarificationQuestion,
-                "STANDARD", List.of(), null);
+                "STANDARD", List.of(), GenerationTier.STANDARD, null);
+    }
+
+    public IntentResult(IntentType intent,
+                        String targetTool,
+                        double confidence,
+                        String language,
+                        String normalizedQuery,
+                        Map<String, Object> entities,
+                        RiskLevel riskLevel,
+                        boolean requiresConfirmation,
+                        List<String> missingEntities,
+                        String clarificationQuestion,
+                        String responsePolicy,
+                        List<String> responseConstraints,
+                        String progressMessage) {
+        this(intent, targetTool, confidence, language, normalizedQuery, entities, riskLevel,
+                requiresConfirmation, missingEntities, clarificationQuestion,
+                responsePolicy, responseConstraints, GenerationTier.STANDARD, progressMessage);
     }
 
     public IntentResult {
@@ -86,6 +106,7 @@ public record IntentResult(
                         .distinct()
                         .limit(8)
                         .toList();
+        if (generationTier == null) generationTier = GenerationTier.STANDARD;
         if (progressMessage != null) {
             progressMessage = progressMessage.replace('\n', ' ').replace('\r', ' ').trim();
             if (progressMessage.length() > 160) {

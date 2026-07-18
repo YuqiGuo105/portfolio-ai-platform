@@ -37,8 +37,8 @@ agent:
       escalation-model: ${OPENAI_INTENT_ESCALATION_MODEL:}
       timeout-ms: ${OPENAI_INTENT_TIMEOUT_MS:15000}
     gemini:
-      # Cheap Flash classifier — override with GEMINI_INTENT_MODEL.
-      model: ${GEMINI_INTENT_MODEL:gemini-2.5-flash}
+      # Low-latency structured classifier — override with GEMINI_INTENT_MODEL.
+      model: ${GEMINI_INTENT_MODEL:gemini-2.5-flash-lite}
       escalation-model: ${GEMINI_INTENT_ESCALATION_MODEL:}
       timeout-ms: ${GEMINI_INTENT_TIMEOUT_MS:15000}
       max-output-tokens: ${GEMINI_INTENT_MAX_OUTPUT_TOKENS:256}
@@ -61,8 +61,9 @@ agent:
 
   budget:
     enabled: ${AGENT_BUDGET_ENABLED:true}
-    daily-usd-limit: ${AGENT_CHAT_DAILY_BUDGET_USD:2.00}
-    per-request-reservation-usd: ${AGENT_CHAT_REQUEST_RESERVATION_USD:0.05}
+    daily-usd-limit: ${AGENT_CHAT_DAILY_BUDGET_USD:0.75}
+    per-request-reservation-usd: ${AGENT_CHAT_REQUEST_RESERVATION_USD:0.005}
+    deep-request-reservation-usd: ${AGENT_DEEP_REQUEST_RESERVATION_USD:0.03}
     zone: ${AGENT_BUDGET_ZONE:UTC}
 
   sse:
@@ -138,7 +139,7 @@ knowledge:
 # ─── Safety + Handoff ────────────────────────────────────────────────────
 safety:
   enabled: ${SAFETY_ENABLED:true}
-  model: ${SAFETY_MODEL:gemini-2.5-flash}
+  model: ${SAFETY_MODEL:gemini-2.5-flash-lite}
   timeout-ms: ${SAFETY_TIMEOUT_MS:10000}
   thinking-budget: ${SAFETY_THINKING_BUDGET:0}
   input:
@@ -155,10 +156,16 @@ handoff:
   crm-webhook-url: ${CRM_WEBHOOK_URL:}
   crm-api-key: ${CRM_API_KEY:}
 
-# ─── Answer Generation (Gemini Pro) ─────────────────────────────────────
+# ─── Tiered Answer Generation ────────────────────────────────────────────
 agent.generation:
-  model: ${GENERATION_MODEL:gemini-2.5-pro}
-  max-output-tokens: ${GENERATION_MAX_OUTPUT_TOKENS:4096}
+  model: ${GENERATION_MODEL:gemini-2.5-flash}
+  deep-model: ${DEEP_GENERATION_MODEL:gemini-2.5-pro}
+  utility-model: ${UTILITY_GENERATION_MODEL:gemini-2.5-flash-lite}
+  max-output-tokens: ${GENERATION_MAX_OUTPUT_TOKENS:2048}
+  deep-max-output-tokens: ${DEEP_GENERATION_MAX_OUTPUT_TOKENS:4096}
+  utility-max-output-tokens: ${UTILITY_GENERATION_MAX_OUTPUT_TOKENS:1024}
+  thinking-budget: ${GENERATION_THINKING_BUDGET:0}
+  utility-thinking-budget: ${UTILITY_GENERATION_THINKING_BUDGET:0}
 
 logging:
   level:

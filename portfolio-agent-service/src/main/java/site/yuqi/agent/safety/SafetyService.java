@@ -118,7 +118,7 @@ public class SafetyService {
     @Value("${agent.model.gemini.api-key:}")
     private String geminiApiKey;
 
-    @Value("${safety.model:gemini-2.5-flash}")
+    @Value("${safety.model:gemini-2.5-flash-lite}")
     private String safetyModel;
 
     @Value("${safety.enabled:true}")

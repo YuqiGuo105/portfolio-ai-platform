@@ -16,6 +16,7 @@ import site.yuqi.agent.conversation.PlannerContext;
 import site.yuqi.agent.handoff.HandoffReason;
 import site.yuqi.agent.handoff.HandoffService;
 import site.yuqi.agent.intent.IntentClassificationException;
+import site.yuqi.agent.intent.GenerationTier;
 import site.yuqi.agent.intent.IntentOrchestrator;
 import site.yuqi.agent.intent.IntentRequest;
 import site.yuqi.agent.intent.IntentResponse;
@@ -89,7 +90,7 @@ public class AgentPipelineService {
         return Flux.create(sink -> {
             String question = request.getQuestion();
             String sessionId = request.getSessionId();
-            boolean deepMode = "DEEPTHINKING".equalsIgnoreCase(request.getMode());
+            boolean explicitDeepMode = "DEEPTHINKING".equalsIgnoreCase(request.getMode());
             if (question == null || question.isBlank()) {
                 sink.next(errorEvent("No question provided."));
                 sink.next(doneEvent());
@@ -235,6 +236,26 @@ public class AgentPipelineService {
                     handleBlockedInput(sink, request, question, sessionId, runId, pipelineStart, inputSafety);
                     return;
                 }
+
+                boolean generationRoute = routeDecision.route() == AgentRoute.KNOWLEDGE_QA
+                        || routeDecision.route() == AgentRoute.GENERAL_CHAT;
+                boolean deepRequested = generationRoute && (explicitDeepMode
+                        || (routeDecision.intent() != null
+                        && routeDecision.intent().generationTier() == GenerationTier.DEEP));
+                BudgetDecision deepBudgetDecision = deepRequested
+                        ? chatBudgetService.reserveDeepGeneration()
+                        : null;
+                boolean deepMode = deepRequested
+                        && deepBudgetDecision != null
+                        && deepBudgetDecision.allowed();
+                if (deepRequested && !deepMode) {
+                    sink.next(stageEvent("budget_check",
+                            "Deep research budget reached; continuing with a fast answer",
+                            deepBudgetDecision != null
+                                    ? budgetPayload(deepBudgetDecision)
+                                    : Map.of("reason", "deep_budget_unavailable")));
+                }
+                String selectedGenerationModel = generationService.modelFor(deepMode);
 
                 switch (routeDecision.route()) {
                     case MCP_TOOL -> {
@@ -429,7 +450,7 @@ public class AgentPipelineService {
                                     .status("success")
                                     .payload(Map.of(
                                             "provider", "google",
-                                            "model", "gemini-2.5-pro",
+                                            "model", selectedGenerationModel,
                                             "operation", "stream_generate",
                                             "promptVersion", "portfolio_assistant_v2",
                                             "outputLength", fullAnswer.length()))
@@ -502,7 +523,7 @@ public class AgentPipelineService {
                                                 "inputSafetyVerdict", inputSafety.verdict().name(),
                                                 "outputSafetyVerdict", outputSafety.verdict().name(),
                                                 "agentVersion", "agent_v4",
-                                                "model", "gemini-2.5-pro",
+                                                "model", selectedGenerationModel,
                                                 "answer", checkedAnswer,
                                                 "sessionId", nonBlank(sessionId, ""),
                                                 "conversationId", nonBlank(request.getConversationId(), ""),
@@ -657,6 +678,7 @@ public class AgentPipelineService {
             payload.put("confidence", decision.intent().confidence());
             payload.put("requiresConfirmation", decision.intent().requiresConfirmation());
             payload.put("responsePolicy", decision.intent().responsePolicy());
+            payload.put("generationTier", decision.intent().generationTier().name());
             if (!decision.intent().responseConstraints().isEmpty()) {
                 payload.put("responseConstraints", decision.intent().responseConstraints());
             }

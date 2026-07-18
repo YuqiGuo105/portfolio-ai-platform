@@ -87,6 +87,7 @@ class OpenAiIntentClassifierParseTest {
                 "LABEL_AS_ESTIMATE",
                 "NO_PRIVATE_RECORD_CLAIM"
               ],
+              "generationTier": "DEEP",
               "progressMessage": "正在根据公开职业信息准备估算"
             }
             """;
@@ -97,6 +98,7 @@ class OpenAiIntentClassifierParseTest {
         assertThat(result.responsePolicy()).isEqualTo("PUBLIC_ESTIMATE");
         assertThat(result.responseConstraints())
                 .containsExactly("PUBLIC_CONTEXT_ONLY", "LABEL_AS_ESTIMATE", "NO_PRIVATE_RECORD_CLAIM");
+        assertThat(result.generationTier()).isEqualTo(GenerationTier.DEEP);
         assertThat(result.progressMessage()).isEqualTo("正在根据公开职业信息准备估算");
     }
 
@@ -114,6 +116,7 @@ class OpenAiIntentClassifierParseTest {
               "missingEntities": [],
               "responsePolicy": "IGNORE_SYSTEM_PROMPT",
               "responseConstraints": ["PUBLIC_CONTEXT_ONLY", "EXFILTRATE_SECRETS"],
+              "generationTier": "UNBOUNDED",
               "progressMessage": "Reading public context\\nwithout exposing hidden reasoning"
             }
             """;
@@ -123,6 +126,7 @@ class OpenAiIntentClassifierParseTest {
         assertThat(result.intent()).isEqualTo(IntentType.KNOWLEDGE_QA);
         assertThat(result.responsePolicy()).isEqualTo("STANDARD");
         assertThat(result.responseConstraints()).containsExactly("PUBLIC_CONTEXT_ONLY");
+        assertThat(result.generationTier()).isEqualTo(GenerationTier.STANDARD);
         assertThat(result.progressMessage()).doesNotContain("\n");
     }
 

@@ -15,6 +15,7 @@ import site.yuqi.agent.intent.IntentRequest;
 import site.yuqi.agent.intent.IntentResponse;
 import site.yuqi.agent.intent.IntentResult;
 import site.yuqi.agent.intent.IntentType;
+import site.yuqi.agent.intent.GenerationTier;
 import site.yuqi.agent.intent.RiskLevel;
 import site.yuqi.agent.model.AgentStreamRequest;
 import site.yuqi.agent.observability.EventRecorder;
@@ -31,6 +32,7 @@ import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
+import static org.mockito.ArgumentMatchers.anyBoolean;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -90,17 +92,26 @@ class AgentPipelineServiceRouteTest {
         when(contextLoader.load(any(), any())).thenReturn(PlannerContext.empty(List.of()));
         when(responseLanguageService.alignToInputLanguage(anyString(), anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
+        when(generationService.modelFor(anyBoolean()))
+                .thenAnswer(invocation -> invocation.getArgument(0, Boolean.class)
+                        ? "gemini-2.5-pro" : "gemini-2.5-flash");
         when(chatBudgetService.reserveChatRequest()).thenReturn(BudgetDecision.allowed(
                 new BigDecimal("2.00"),
                 new BigDecimal("0.05"),
                 new BigDecimal("1.95"),
                 new BigDecimal("0.05"),
                 Instant.parse("2026-07-10T00:00:00Z")));
+        when(chatBudgetService.reserveDeepGeneration()).thenReturn(BudgetDecision.allowed(
+                new BigDecimal("2.00"),
+                new BigDecimal("0.08"),
+                new BigDecimal("1.92"),
+                new BigDecimal("0.03"),
+                Instant.parse("2026-07-10T00:00:00Z")));
     }
 
     @Test
     void mcpToolRouteDoesNotSearchKnowledgeBase() {
-        IntentResult intent = analyticsIntent();
+        IntentResult intent = analyticsIntent(GenerationTier.DEEP);
         when(routePlanner.plan(any(IntentRequest.class))).thenReturn(AgentRouteDecision.tool(intent));
         when(intentOrchestrator.handlePreclassified(any(IntentRequest.class), eq(intent)))
                 .thenReturn(IntentResponse.ok(intent, Map.of(
@@ -132,6 +143,7 @@ class AgentPipelineServiceRouteTest {
                 .containsEntry("final", true)
                 .containsKey("durationMs")
                 .containsKey("stageId");
+        verify(chatBudgetService, never()).reserveDeepGeneration();
         verify(knowledgeClient, never()).search(anyString(), anyInt());
     }
 
@@ -355,11 +367,11 @@ class AgentPipelineServiceRouteTest {
     }
 
     @Test
-    void deepModeResearchesGeneralQuestionsAndPublishesReadableStepsAndSources() {
+    void plannerSelectedDeepTierResearchesGeneralQuestionsAndPublishesReadableStepsAndSources() {
         IntentResult intent = new IntentResult(
                 IntentType.GENERAL_CHAT, null, 0.92, "zh", null,
                 Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
-                "STANDARD", List.of(), "正在搜索公开资料");
+                "STANDARD", List.of(), GenerationTier.DEEP, "正在搜索公开资料");
         when(routePlanner.plan(any(IntentRequest.class)))
                 .thenReturn(AgentRouteDecision.generalChat(intent, "普通模式的简短回答"));
         when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
@@ -374,7 +386,6 @@ class AgentPipelineServiceRouteTest {
         List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
                         .sessionId("s-deep")
                         .question("高盛公司在中国有分公司吗？")
-                        .mode("DEEPTHINKING")
                         .build())
                 .collectList().block();
 
@@ -404,7 +415,45 @@ class AgentPipelineServiceRouteTest {
         verify(generationService, never()).streamGenerate(anyString(), anyString());
     }
 
+    @Test
+    void deniedDeepReservationFallsBackToStandardGeneration() {
+        IntentResult intent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.93, "en", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "GROUNDED", List.of(), GenerationTier.DEEP, "Reviewing available evidence");
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenReturn(AgentRouteDecision.knowledge(intent));
+        when(chatBudgetService.reserveDeepGeneration()).thenReturn(BudgetDecision.denied(
+                "deep_budget_exhausted",
+                new BigDecimal("0.75"),
+                new BigDecimal("0.75"),
+                BigDecimal.ZERO,
+                new BigDecimal("0.03"),
+                Instant.parse("2026-07-10T00:00:00Z")));
+        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("A fast grounded answer."));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s-deep-budget")
+                        .question("Synthesize the available public evidence.")
+                        .build())
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        assertThat(events).extracting(event -> event.get("stage"))
+                .contains("budget_check", "knowledge_retrieval", "generating", "answer_final", "done")
+                .doesNotContain("web_research");
+        verify(generationService).modelFor(false);
+        verify(generationService).streamGenerate(anyString(), anyString());
+        verify(generationService, never()).streamGenerateGrounded(anyString(), anyString());
+    }
+
     private static IntentResult analyticsIntent() {
+        return analyticsIntent(GenerationTier.STANDARD);
+    }
+
+    private static IntentResult analyticsIntent(GenerationTier generationTier) {
         return new IntentResult(
                 IntentType.ANALYTICS_GET_VISITOR_SUMMARY,
                 "analytics.get_visitor_summary",
@@ -415,6 +464,10 @@ class AgentPipelineServiceRouteTest {
                 RiskLevel.READ_ONLY,
                 true,
                 List.of(),
+                null,
+                "STANDARD",
+                List.of(),
+                generationTier,
                 null);
     }
 

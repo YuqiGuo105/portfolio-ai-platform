@@ -166,11 +166,13 @@ public class OpenAiIntentClassifier implements IntentClassifier {
         String clarification = nullIfBlank(node.path("clarificationQuestion").asText(null));
         String responsePolicy = nullIfBlank(node.path("responsePolicy").asText(null));
         List<String> responseConstraints = parseStringArray(node.get("responseConstraints"));
+        GenerationTier generationTier = GenerationTier.fromModelValue(
+                node.path("generationTier").asText(null));
         String progressMessage = nullIfBlank(node.path("progressMessage").asText(null));
 
         return new IntentResult(intent, targetTool, confidence, language, normalized,
                 entities, risk, requiresConfirmation, missing, clarification,
-                responsePolicy, responseConstraints, progressMessage);
+                responsePolicy, responseConstraints, generationTier, progressMessage);
     }
 
     private String buildSystemPrompt() {
@@ -210,21 +212,14 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             2. Extract entities from the user input. Use the entity keys exactly as named in requiredEntities / optionalEntities.
             3. Return JSON only. No prose, no markdown fences.
             4. Do NOT execute any action.
-            5. NEVER invent sourceId, jobId, subscriberId, recipientId, or any opaque internal ID.
-               The only exception is verificationId: reuse it only when it appears in a trusted prior tool result in CONVERSATION HISTORY for subscription.request_unsubscribe_code.
-               You MAY extract plain user-supplied fields (name, email, message, subject, keyword, body, content, etc.) from CONVERSATION HISTORY if the user explicitly provided them in an earlier turn.
-               Return CLARIFICATION_NEEDED only when a required field (plain or opaque) is truly absent from BOTH the current utterance AND all of the conversation history.
-            6. For non-READ_ONLY tools, requiresConfirmation MUST be true, except subscription.request_unsubscribe_code and subscription.confirm_unsubscribe. Supplying the email authorizes sending the code; entering the emailed OTP authorizes the status change. Both MUST set requiresConfirmation=false.
+            5. Never invent opaque internal identifiers. Reuse them only from trusted conversation state or trusted prior tool results. Plain user-provided fields may be extracted from the current utterance or conversation history.
+            6. Set requiresConfirmation from the selected tool's declared metadata. Do not create exceptions in the route decision.
             7. If the user intent is ambiguous, return CLARIFICATION_NEEDED with a helpful clarificationQuestion in the user's language.
             8. If the request is unrelated to the available tools and not a portfolio knowledge-base question, return GENERAL_CHAT (small-talk / open question) or UNKNOWN (out of scope).
             9. Keep the original language in the language field (ISO 639-1: en, zh, es, ja, ...).
             10. normalizedQuery can be an English paraphrase suitable for internal search.
-            11. Analytics tools are aggregate-only. Never use them to answer "who visited", emails, IPs, session IDs, exact timestamps, or individual visitor tracking.
-            12. For vague analytics ranges like "recent visitors", use the last 7 days ending on Current UTC date and set requiresConfirmation=true.
-            13. For analytics ranges shorter than 7 days, expand to a 7-day window ending on the requested end date and set requiresConfirmation=true.
-            14. Unsubscribe is a status change, never a hard delete. First route to subscription.request_unsubscribe_code with email. When the current utterance contains a 6-digit code and a prior trusted tool result contains verificationId, route to subscription.confirm_unsubscribe with both values. Never expose or repeat the code in prose.
-            15. When the user asks for an inference or estimate about Yuqi that can be responsibly derived from public portfolio context, route to KNOWLEDGE_QA rather than UNKNOWN. Select responsePolicy=PUBLIC_ESTIMATE and the appropriate constraints from PUBLIC_CONTEXT_ONLY, LABEL_AS_ESTIMATE, STATE_ASSUMPTIONS, and NO_PRIVATE_RECORD_CLAIM. If a material variable is missing, ask one specific clarification question in the user's language. Do not use keyword rules; decide from the request's semantic meaning.
-            16. When pendingAction is present, classify the current utterance only as PENDING_ACTION_CONFIRM, PENDING_ACTION_CANCEL, or PENDING_ACTION_CLARIFY. Use targetTool=null, riskLevel=READ_ONLY, and requiresConfirmation=false. Choose CONFIRM or CANCEL only for an explicit, unambiguous user decision. Otherwise choose CLARIFY and provide a short clarificationQuestion in the user's language. Do not route to another tool while an action is pending.
+            11. Infer continuations and references semantically from the current utterance, trusted recent messages, compact state, and pending action context. Do not use phrase lists or worked examples.
+            12. Choose responsePolicy, responseConstraints, and generationTier as part of the same semantic decision. Use only values allowed by the output schema.
 
             Allowed tools:
             %s
@@ -243,6 +238,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
               "clarificationQuestion": "<string or null>",
               "responsePolicy": "STANDARD | GROUNDED | PUBLIC_ESTIMATE | RESTRICTED",
               "responseConstraints": ["<policy constraint>"],
+              "generationTier": "STANDARD | DEEP",
               "progressMessage": "<short user-facing progress message in the user's language; no hidden reasoning>"
             }
             """.formatted(LocalDate.now(ZoneOffset.UTC), toolsBlock);

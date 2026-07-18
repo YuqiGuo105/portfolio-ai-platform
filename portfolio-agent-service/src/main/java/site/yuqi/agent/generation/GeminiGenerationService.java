@@ -15,8 +15,9 @@ import java.util.List;
 import java.util.Map;
 
 /**
- * Streams answer tokens from Gemini 2.5 Pro via streamGenerateContent.
- * Returns a Flux of text deltas suitable for SSE streaming.
+ * Gemini model gateway for standard answers, deep grounded research, and
+ * short utility generations. Each workload has an independently configurable
+ * model and token budget.
  */
 @Slf4j
 @Service
@@ -31,11 +32,29 @@ public class GeminiGenerationService {
     @Value("${agent.model.gemini.base-url:${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}}")
     private String baseUrl;
 
-    @Value("${agent.generation.model:gemini-2.5-pro}")
+    @Value("${agent.generation.model:gemini-2.5-flash}")
     private String generationModel;
 
-    @Value("${agent.generation.max-output-tokens:4096}")
+    @Value("${agent.generation.deep-model:gemini-2.5-pro}")
+    private String deepGenerationModel;
+
+    @Value("${agent.generation.utility-model:gemini-2.5-flash-lite}")
+    private String utilityModel;
+
+    @Value("${agent.generation.max-output-tokens:2048}")
     private int maxOutputTokens;
+
+    @Value("${agent.generation.deep-max-output-tokens:4096}")
+    private int deepMaxOutputTokens;
+
+    @Value("${agent.generation.utility-max-output-tokens:1024}")
+    private int utilityMaxOutputTokens;
+
+    @Value("${agent.generation.thinking-budget:0}")
+    private int thinkingBudget;
+
+    @Value("${agent.generation.utility-thinking-budget:0}")
+    private int utilityThinkingBudget;
 
     public GeminiGenerationService(WebClient.Builder webClientBuilder, ObjectMapper objectMapper) {
         this.webClient = webClientBuilder.build();
@@ -43,7 +62,7 @@ public class GeminiGenerationService {
     }
 
     /**
-     * Stream answer generation from Gemini Pro.
+     * Stream a standard answer from the low-latency generation model.
      *
      * @param systemPrompt system instructions
      * @param userMessage  user question with context
@@ -52,7 +71,8 @@ public class GeminiGenerationService {
     public Flux<String> streamGenerate(String systemPrompt, String userMessage) {
         String url = baseUrl + "/models/" + generationModel + ":streamGenerateContent?alt=sse&key=" + apiKey;
 
-        ObjectNode requestBody = buildRequest(systemPrompt, userMessage, false);
+        ObjectNode requestBody = buildRequest(
+                systemPrompt, userMessage, false, maxOutputTokens, thinkingBudget);
 
         return webClient.post()
                 .uri(url)
@@ -76,8 +96,10 @@ public class GeminiGenerationService {
      * model-authored URLs.
      */
     public Flux<GroundedChunk> streamGenerateGrounded(String systemPrompt, String userMessage) {
-        String url = baseUrl + "/models/" + generationModel + ":streamGenerateContent?alt=sse&key=" + apiKey;
-        ObjectNode requestBody = buildRequest(systemPrompt, userMessage, true);
+        String url = baseUrl + "/models/" + deepGenerationModel
+                + ":streamGenerateContent?alt=sse&key=" + apiKey;
+        ObjectNode requestBody = buildRequest(
+                systemPrompt, userMessage, true, deepMaxOutputTokens, null);
 
         return webClient.post()
                 .uri(url)
@@ -97,12 +119,14 @@ public class GeminiGenerationService {
     }
 
     /**
-     * Non-streaming generation (for short answers).
+     * Non-streaming generation for short utility work such as formatting,
+     * language alignment, compaction, and safety rewrites.
      */
     public String generate(String systemPrompt, String userMessage) {
-        String url = baseUrl + "/models/" + generationModel + ":generateContent?key=" + apiKey;
+        String url = baseUrl + "/models/" + utilityModel + ":generateContent?key=" + apiKey;
 
-        ObjectNode requestBody = buildRequest(systemPrompt, userMessage, false);
+        ObjectNode requestBody = buildRequest(
+                systemPrompt, userMessage, false, utilityMaxOutputTokens, utilityThinkingBudget);
 
         String response = webClient.post()
                 .uri(url)
@@ -116,7 +140,19 @@ public class GeminiGenerationService {
         return extractFullText(response);
     }
 
-    private ObjectNode buildRequest(String systemPrompt, String userMessage, boolean webSearch) {
+    public String modelFor(boolean deepMode) {
+        return deepMode ? deepGenerationModel : generationModel;
+    }
+
+    public String utilityModel() {
+        return utilityModel;
+    }
+
+    private ObjectNode buildRequest(String systemPrompt,
+                                    String userMessage,
+                                    boolean webSearch,
+                                    int outputTokenLimit,
+                                    Integer requestThinkingBudget) {
         ObjectNode root = objectMapper.createObjectNode();
 
         // System instruction
@@ -144,8 +180,12 @@ public class GeminiGenerationService {
 
         // Generation config
         ObjectNode genConfig = objectMapper.createObjectNode();
-        genConfig.put("maxOutputTokens", maxOutputTokens);
+        genConfig.put("maxOutputTokens", outputTokenLimit);
         genConfig.put("temperature", 0.7);
+        if (requestThinkingBudget != null) {
+            genConfig.putObject("thinkingConfig")
+                    .put("thinkingBudget", requestThinkingBudget);
+        }
         root.set("generationConfig", genConfig);
 
         if (webSearch) {
