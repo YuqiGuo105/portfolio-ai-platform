@@ -41,7 +41,8 @@ agent:
       model: ${GEMINI_INTENT_MODEL:gemini-2.5-flash-lite}
       escalation-model: ${GEMINI_INTENT_ESCALATION_MODEL:}
       timeout-ms: ${GEMINI_INTENT_TIMEOUT_MS:15000}
-      max-output-tokens: ${GEMINI_INTENT_MAX_OUTPUT_TOKENS:256}
+      # Structured tool arguments can be nested; this is a ceiling, not a fixed token spend.
+      max-output-tokens: ${GEMINI_INTENT_MAX_OUTPUT_TOKENS:1024}
       # 0 disables Gemini-2.5 hidden "thinking" tokens (cheaper + faster).
       thinking-budget: ${GEMINI_INTENT_THINKING_BUDGET:0}
     confidence:
