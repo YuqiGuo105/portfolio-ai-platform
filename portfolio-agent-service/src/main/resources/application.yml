@@ -64,6 +64,11 @@ agent:
     enabled: ${AGENT_BUDGET_ENABLED:true}
     daily-usd-limit: ${AGENT_CHAT_DAILY_BUDGET_USD:0.75}
     per-request-reservation-usd: ${AGENT_CHAT_REQUEST_RESERVATION_USD:0.05}
+    standard-model-estimate-usd: ${AGENT_STANDARD_MODEL_ESTIMATE_USD:0.002}
+    deep-model-estimate-usd: ${AGENT_DEEP_MODEL_ESTIMATE_USD:0.04}
+    deep-path-enabled: ${AGENT_DEEP_PATH_ENABLED:true}
+    deep-path-min-remaining-usd: ${AGENT_DEEP_PATH_MIN_REMAINING_USD:0.10}
+    high-cost-disable-at-ratio: ${AGENT_HIGH_COST_DISABLE_AT_RATIO:0.90}
     zone: ${AGENT_BUDGET_ZONE:UTC}
 
   sse:

@@ -239,16 +239,35 @@ public class AgentPipelineService {
 
                 boolean generationRoute = routeDecision.route() == AgentRoute.KNOWLEDGE_QA
                         || routeDecision.route() == AgentRoute.GENERAL_CHAT;
-                boolean deepMode = generationRoute && (explicitDeepMode
+                boolean requestedDeepMode = generationRoute && (explicitDeepMode
                         || (routeDecision.intent() != null
                         && routeDecision.intent().generationTier() == GenerationTier.DEEP));
-                String selectedGenerationModel = generationService.modelFor(deepMode);
+                boolean deepMode = requestedDeepMode;
+                if (deepMode) {
+                    ChatBudgetService.HighCostPathDecision highCostDecision =
+                            chatBudgetService.evaluateHighCostPath();
+                    if (highCostDecision != null && !highCostDecision.allowed()) {
+                        deepMode = false;
+                        chatBudgetService.recordHighCostDowngrade(highCostDecision.reason());
+                        sink.next(stageEvent("cost_guardrail",
+                                "High-cost path is over budget; continuing with the standard model.",
+                                Map.of(
+                                        "reason", nonBlank(highCostDecision.reason(), "high_cost_path_disabled"),
+                                        "guardrailMode", highCostDecision.snapshot() != null
+                                                ? highCostDecision.snapshot().guardrailMode() : "DEGRADED",
+                                        "dailyBudget", highCostDecision.snapshot() != null
+                                                ? highCostDecision.snapshot() : Map.of())));
+                    }
+                }
+                final boolean effectiveDeepMode = deepMode;
+                final String selectedGenerationModel = generationService.modelFor(effectiveDeepMode);
 
                 switch (routeDecision.route()) {
                     case MCP_TOOL -> {
                         String toolName = routeDecision.intent() != null
                                 ? routeDecision.intent().targetTool()
                                 : "unknown";
+                        chatBudgetService.recordToolCall(toolName);
                         String callId = UUID.randomUUID().toString();
                         long toolStart = System.currentTimeMillis();
                         sink.next(toolCallStarted(callId, toolName));
@@ -282,9 +301,11 @@ public class AgentPipelineService {
                         return;
                     }
                     case GENERAL_CHAT -> {
-                        if (deepMode) {
+                        if (requestedDeepMode) {
                             // Deep mode handles broader public-information questions by
-                            // continuing into retrieval + grounded web research.
+                            // continuing into retrieval + generation. If cost guardrails
+                            // disable the expensive path, the same workflow continues with
+                            // the standard model and without web search.
                             break;
                         }
                         String answer = alignAnswer(question, nonBlank(routeDecision.message(),
@@ -302,7 +323,7 @@ public class AgentPipelineService {
                     }
                 }
 
-                if (deepMode) {
+                if (effectiveDeepMode) {
                     sink.next(reasoningStep("Plan the research",
                             "Identify the facts needed and the best sources to verify them.", false));
                 }
@@ -349,7 +370,7 @@ public class AgentPipelineService {
                 sink.next(stageCompleted("knowledge_retrieval",
                         "Found " + chunkCount + " relevant chunks",
                         retrievalStageId, retrievalLatency, Map.of("chunksFound", chunkCount)));
-                if (deepMode) {
+                if (effectiveDeepMode) {
                     sink.next(reasoningStep("Plan the research",
                             "The evidence needed for a direct answer is clear.", true));
                     sink.next(reasoningStep("Search relevant sources",
@@ -359,16 +380,16 @@ public class AgentPipelineService {
                 }
 
                 // Stage 3: Build prompt with context + conversation history
-                String generationStage = deepMode ? "web_research" : "generating";
+                String generationStage = effectiveDeepMode ? "web_research" : "generating";
                 String generationStageId = stageId(runId, generationStage);
                 sink.next(stageStarted(generationStage,
-                        deepMode
+                        effectiveDeepMode
                                 ? "Searching and verifying public sources..."
                                 : "Preparing a grounded answer...",
                         generationStageId));
                 String userPrompt = buildUserPrompt(
                         question, contextChunks, request, plannerContext, routeDecision.intent(), inputSafety);
-                if (deepMode) {
+                if (effectiveDeepMode) {
                     userPrompt += """
 
                             ## Deep Research Instructions
@@ -396,7 +417,8 @@ public class AgentPipelineService {
                 long generationStart = System.currentTimeMillis();
                 StringBuilder answerBuf = new StringBuilder();
                 Map<String, GeminiGenerationService.GroundedSource> groundedSources = new LinkedHashMap<>();
-                Flux<GeminiGenerationService.GroundedChunk> generationFlux = deepMode
+                chatBudgetService.recordModelCall(selectedGenerationModel, effectiveDeepMode, effectiveDeepMode);
+                Flux<GeminiGenerationService.GroundedChunk> generationFlux = effectiveDeepMode
                         ? generationService.streamGenerateGrounded(SYSTEM_PROMPT, userPrompt)
                         : generationService.streamGenerate(SYSTEM_PROMPT, userPrompt)
                                 .map(delta -> new GeminiGenerationService.GroundedChunk(delta, List.of()));
@@ -412,13 +434,13 @@ public class AgentPipelineService {
                             String finalAnswer = fullAnswer.trim();
                             int generationLatency = (int) (System.currentTimeMillis() - generationStart);
                             sink.next(stageCompleted(generationStage,
-                                    deepMode ? "Public sources searched and verified" : "Answer draft completed",
+                                    effectiveDeepMode ? "Public sources searched and verified" : "Answer draft completed",
                                     generationStageId,
                                     generationLatency,
                                     Map.of(
                                             "outputLength", fullAnswer.length(),
                                             "sourcesFound", groundedSources.size())));
-                            if (deepMode) {
+                            if (effectiveDeepMode) {
                                 sink.next(reasoningStep("Search relevant sources",
                                         "Found " + groundedSources.size() + " citable public source"
                                                 + (groundedSources.size() == 1 ? "." : "s."), true));
@@ -472,7 +494,7 @@ public class AgentPipelineService {
                             sink.next(stageCompleted("output_safety", "Answer checked", outputSafetyStageId,
                                     (int) (System.currentTimeMillis() - outputSafetyStart),
                                     Map.of("verdict", outputSafety.verdict().name())));
-                            if (deepMode) {
+                            if (effectiveDeepMode) {
                                 sink.next(reasoningStep("Verify and synthesize",
                                         "Verification complete; the answer and supporting sources are ready.", true));
                             }
@@ -528,7 +550,7 @@ public class AgentPipelineService {
                         .doOnError(e -> {
                             log.error("Generation failed for session={}", sessionId, e);
                             sink.next(stageCompleted(generationStage,
-                                    deepMode ? "Web research failed" : "Answer generation failed",
+                                    effectiveDeepMode ? "Web research failed" : "Answer generation failed",
                                     generationStageId,
                                     (int) (System.currentTimeMillis() - generationStart),
                                     Map.of("status", "failed")));

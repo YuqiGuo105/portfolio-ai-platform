@@ -101,6 +101,8 @@ class AgentPipelineServiceRouteTest {
                 new BigDecimal("1.95"),
                 new BigDecimal("0.05"),
                 Instant.parse("2026-07-10T00:00:00Z")));
+        when(chatBudgetService.evaluateHighCostPath())
+                .thenReturn(ChatBudgetService.HighCostPathDecision.allowed("within_budget", null));
     }
 
     @Test
@@ -406,6 +408,36 @@ class AgentPipelineServiceRouteTest {
                 .contains("be verified instead of filling gaps")
                 .doesNotContain("location questions", "cities or offices");
         verify(generationService, never()).streamGenerate(anyString(), anyString());
+    }
+
+    @Test
+    void costGuardrailDowngradesDeepResearchToStandardGeneration() {
+        IntentResult intent = new IntentResult(
+                IntentType.GENERAL_CHAT, null, 0.92, "zh", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "STANDARD", List.of(), GenerationTier.DEEP, "正在搜索公开资料");
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenReturn(AgentRouteDecision.generalChat(intent, "普通模式的简短回答"));
+        when(chatBudgetService.evaluateHighCostPath())
+                .thenReturn(ChatBudgetService.HighCostPathDecision.denied("daily_budget_near_limit", null));
+        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("标准模型回答。"));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("s-cost")
+                        .question("帮我搜索一个需要公开资料的问题")
+                        .build())
+                .collectList().block();
+
+        assertThat(events).isNotNull();
+        assertThat(events).extracting(event -> event.get("stage"))
+                .contains("cost_guardrail", "knowledge_retrieval", "generating", "answer_final", "done")
+                .doesNotContain("web_research", "sources_found");
+        verify(generationService).streamGenerate(anyString(), anyString());
+        verify(generationService, never()).streamGenerateGrounded(anyString(), anyString());
+        verify(chatBudgetService).recordHighCostDowngrade("daily_budget_near_limit");
+        verify(chatBudgetService).recordModelCall("gemini-2.5-flash", false, false);
     }
 
     private static IntentResult analyticsIntent() {
