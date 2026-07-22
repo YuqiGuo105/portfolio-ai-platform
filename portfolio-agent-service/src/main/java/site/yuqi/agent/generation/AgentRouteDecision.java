@@ -23,6 +23,10 @@ public record AgentRouteDecision(
         return new AgentRouteDecision(AgentRoute.HANDOFF, intent, message);
     }
 
+    public static AgentRouteDecision webGuide(IntentResult intent) {
+        return new AgentRouteDecision(AgentRoute.WEB_GUIDE, intent, null);
+    }
+
     public static AgentRouteDecision generalChat(IntentResult intent, String message) {
         return new AgentRouteDecision(AgentRoute.GENERAL_CHAT, intent, message);
     }

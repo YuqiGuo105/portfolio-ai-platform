@@ -5,5 +5,6 @@ public enum AgentRoute {
     MCP_TOOL,
     CLARIFY,
     HANDOFF,
+    WEB_GUIDE,
     GENERAL_CHAT
 }

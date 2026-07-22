@@ -15,6 +15,7 @@ import site.yuqi.agent.conversation.MemoryWriter;
 import site.yuqi.agent.conversation.PlannerContext;
 import site.yuqi.agent.handoff.HandoffReason;
 import site.yuqi.agent.handoff.HandoffService;
+import site.yuqi.agent.guide.WebGuidePlanService;
 import site.yuqi.agent.intent.IntentClassificationException;
 import site.yuqi.agent.intent.GenerationTier;
 import site.yuqi.agent.intent.IntentOrchestrator;
@@ -58,6 +59,7 @@ public class AgentPipelineService {
     private final ConversationContextLoader contextLoader;
     private final MemoryWriter memoryWriter;
     private final ChatBudgetService chatBudgetService;
+    private final WebGuidePlanService webGuidePlanService;
 
     private static final String SYSTEM_PROMPT = """
             You are Yuqi's AI assistant on his portfolio website (yuqi.site).
@@ -296,6 +298,26 @@ public class AgentPipelineService {
                         recordAnswerEvent(request, runId, pipelineStart, answer, "answered", "HANDOFF");
                         memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "HANDOFF", (Map<String, Object>) null);
                         emitRunCompleted(runId, pipelineStart, "handoff_pending");
+                        sink.next(doneEvent());
+                        sink.complete();
+                        return;
+                    }
+                    case WEB_GUIDE -> {
+                        WebGuidePlanService.WebGuidePlan guidePlan = webGuidePlanService.build(routeDecision.intent());
+                        Map<String, Object> guidePayload = guidePlan.toPayload();
+                        String answer = guidePlan.responseMessage();
+                        sink.next(stageEvent("tour_steps", answer, guidePayload));
+                        recordAnswerEvent(request, runId, pipelineStart, answer, "answered", "WEB_GUIDE");
+                        memoryWriter.writeTurnPair(request.getConversationId(), question, answer,
+                                "WEB_GUIDE", Map.of(
+                                        "targetKeys", guidePlan.steps().stream()
+                                                .map(step -> step.get("targetKey"))
+                                                .toList(),
+                                        "startMode", guidePlan.startMode()));
+                        emitRunCompleted(runId, pipelineStart, "web_guide");
+                        sink.next(answerFinalEvent(answer, Map.of(
+                                "responseType", "WEB_GUIDE",
+                                "guideAutoStart", guidePlan.autoStart())));
                         sink.next(doneEvent());
                         sink.complete();
                         return;

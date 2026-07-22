@@ -16,17 +16,20 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.when;
+import static org.mockito.ArgumentMatchers.any;
 
 class LlmAgentRoutePlannerTest {
 
     private IntentClassifier classifier;
+    private IntentValidator validator;
     private LlmAgentRoutePlanner planner;
     private IntentRequest request;
 
     @BeforeEach
     void setUp() {
         classifier = mock(IntentClassifier.class);
-        planner = new LlmAgentRoutePlanner(classifier, mock(IntentValidator.class));
+        validator = mock(IntentValidator.class);
+        planner = new LlmAgentRoutePlanner(classifier, validator);
         ReflectionTestUtils.setField(planner, "pendingDecisionConfidence", 0.80);
         request = IntentRequest.builder()
                 .sessionId("s1")
@@ -58,6 +61,24 @@ class LlmAgentRoutePlannerTest {
         assertThat(decision.type())
                 .isEqualTo(LlmAgentRoutePlanner.PendingActionDecisionType.CLARIFY);
         assertThat(decision.message()).contains("confirm or cancel");
+    }
+
+    @Test
+    void routesModelSelectedWebGuideWithoutToolExecution() {
+        IntentResult intent = new IntentResult(
+                IntentType.WEB_GUIDE, null, 0.96, "en", null,
+                Map.of("guideTargetKeys", List.of("home.projects")),
+                RiskLevel.READ_ONLY, false, List.of(), null);
+        when(classifier.classify(request)).thenReturn(intent);
+        when(validator.validate(any(IntentResult.class))).thenReturn(
+                IntentValidator.ValidationResult.builder()
+                        .status(IntentValidator.Status.GENERAL_CHAT)
+                        .build());
+
+        AgentRouteDecision decision = planner.plan(request);
+
+        assertThat(decision.route()).isEqualTo(AgentRoute.WEB_GUIDE);
+        assertThat(decision.intent()).isSameAs(intent);
     }
 
     private static IntentResult pendingIntent(IntentType type, double confidence, String question) {

@@ -44,6 +44,7 @@ public class LlmAgentRoutePlanner {
 
         return switch (intent.intent()) {
             case KNOWLEDGE_QA -> AgentRouteDecision.knowledge(intent);
+            case WEB_GUIDE -> AgentRouteDecision.webGuide(intent);
             case HANDOFF_REQUESTED -> AgentRouteDecision.handoff(intent,
                     nonBlank(intent.clarificationQuestion(),
                             "I can connect you with a human support agent. Please confirm and provide an email for follow-up."));

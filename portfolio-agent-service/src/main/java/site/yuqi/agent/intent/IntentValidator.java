@@ -49,7 +49,7 @@ public class IntentValidator {
         }
 
         switch (intent.intent()) {
-            case KNOWLEDGE_QA -> {
+            case KNOWLEDGE_QA, WEB_GUIDE -> {
                 return ValidationResult.builder().status(Status.GENERAL_CHAT).build();
             }
             case HANDOFF_REQUESTED -> {

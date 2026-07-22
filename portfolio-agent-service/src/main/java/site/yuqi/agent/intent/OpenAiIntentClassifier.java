@@ -10,6 +10,7 @@ import org.springframework.beans.factory.annotation.Value;
 import org.springframework.boot.autoconfigure.condition.ConditionalOnProperty;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import site.yuqi.agent.guide.WebGuideCatalog;
 
 import java.time.LocalDate;
 import java.time.Duration;
@@ -210,6 +211,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             1. Return a structured route decision:
                - Select exactly one tool name from the ALLOWED tool list for operational platform tasks.
                - Return KNOWLEDGE_QA with targetTool=null when the user asks a portfolio/site-content question best answered from the knowledge base.
+               - Return WEB_GUIDE with targetTool=null when the user asks for interactive orientation or navigation through the portfolio website.
                - Return HANDOFF_REQUESTED with targetTool=null when the user asks for a human, support agent, or manual escalation.
                - Return CLARIFICATION_NEEDED / GENERAL_CHAT / UNKNOWN when no tool or knowledge retrieval should run.
             2. Extract entities from the user input. Use the entity keys exactly as named in requiredEntities / optionalEntities. When entitySchema is present, follow its canonical field names, nested shape, allowed values, and action-specific requirements exactly.
@@ -224,12 +226,14 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             11. Infer continuations and references semantically from the current utterance, trusted recent messages, compact state, and pending action context. Do not use phrase lists or worked examples.
             12. Choose responsePolicy, responseConstraints, and generationTier as part of the same semantic decision. Use only values allowed by the output schema.
 
+            %s
+
             Allowed tools:
             %s
 
             Output JSON schema (return EXACTLY these fields, no extras):
             {
-              "intent": "<IntentType enum value, including KNOWLEDGE_QA or HANDOFF_REQUESTED when appropriate>",
+              "intent": "<IntentType enum value, including KNOWLEDGE_QA, WEB_GUIDE, or HANDOFF_REQUESTED when appropriate>",
               "targetTool": "<tool name from allowed list, or null>",
               "confidence": 0.0,
               "language": "<ISO 639-1>",
@@ -244,7 +248,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
               "generationTier": "STANDARD | DEEP",
               "progressMessage": "<short user-facing progress message in the user's language; no hidden reasoning>"
             }
-            """.formatted(LocalDate.now(ZoneOffset.UTC), toolsBlock);
+            """.formatted(LocalDate.now(ZoneOffset.UTC), WebGuideCatalog.classifierContract(), toolsBlock);
     }
 
     private String buildUserPrompt(IntentRequest request) {

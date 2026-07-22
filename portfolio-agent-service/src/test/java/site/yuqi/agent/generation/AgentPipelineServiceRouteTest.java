@@ -10,6 +10,7 @@ import site.yuqi.agent.conversation.ConversationContextLoader;
 import site.yuqi.agent.conversation.MemoryWriter;
 import site.yuqi.agent.conversation.PlannerContext;
 import site.yuqi.agent.handoff.HandoffService;
+import site.yuqi.agent.guide.WebGuidePlanService;
 import site.yuqi.agent.intent.IntentOrchestrator;
 import site.yuqi.agent.intent.IntentRequest;
 import site.yuqi.agent.intent.IntentResponse;
@@ -80,7 +81,8 @@ class AgentPipelineServiceRouteTest {
                 intentOrchestrator,
                 contextLoader,
                 memoryWriter,
-                chatBudgetService);
+                chatBudgetService,
+                new WebGuidePlanService());
 
         SafetyCheckResult pass = SafetyCheckResult.builder()
                 .verdict(SafetyVerdict.PASS)
@@ -169,6 +171,44 @@ class AgentPipelineServiceRouteTest {
         assertThat(payload)
                 .containsEntry("pendingActionId", "pending-123")
                 .containsEntry("responseType", "CONFIRMATION_REQUIRED");
+        verify(knowledgeClient, never()).search(anyString(), anyInt());
+    }
+
+    @Test
+    void webGuideRouteEmitsValidatedTourPlanWithoutKnowledgeSearch() {
+        IntentResult intent = new IntentResult(
+                IntentType.WEB_GUIDE, null, 0.96, "zh", null,
+                Map.of(
+                        "guideTargetKeys", List.of("home.projects", "home.dashboard", "invalid.target"),
+                        "guideStartMode", "START_NOW",
+                        "guideResponseMessage", "我来带你查看项目和实时平台面板。"),
+                RiskLevel.READ_ONLY, false, List.of(), null);
+        when(routePlanner.plan(any(IntentRequest.class))).thenReturn(AgentRouteDecision.webGuide(intent));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("guide-session")
+                        .question("带我看看这个网站")
+                        .build())
+                .collectList()
+                .block();
+
+        assertThat(events).isNotNull();
+        assertThat(events).extracting(event -> event.get("stage"))
+                .contains("routing", "tour_steps", "answer_final", "done")
+                .doesNotContain("knowledge_retrieval");
+        Map<String, Object> tourEvent = events.stream()
+                .filter(event -> "tour_steps".equals(event.get("stage")))
+                .findFirst()
+                .orElseThrow();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) tourEvent.get("payload");
+        assertThat(payload)
+                .containsEntry("language", "zh")
+                .containsEntry("autoStart", true);
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> steps = (List<Map<String, Object>>) payload.get("steps");
+        assertThat(steps).extracting(step -> step.get("targetKey"))
+                .containsExactly("home.projects", "home.dashboard");
         verify(knowledgeClient, never()).search(anyString(), anyInt());
     }
 
