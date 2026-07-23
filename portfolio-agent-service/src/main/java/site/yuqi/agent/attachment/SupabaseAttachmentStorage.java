@@ -6,9 +6,11 @@ import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.http.HttpHeaders;
 import org.springframework.http.HttpStatus;
+import org.springframework.http.HttpStatusCode;
 import org.springframework.http.MediaType;
 import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 
 import java.net.URLEncoder;
 import java.nio.charset.StandardCharsets;
@@ -94,26 +96,19 @@ public class SupabaseAttachmentStorage {
         String response = webClient.get()
                 .uri(storageBase() + "/bucket/" + encode(bucket))
                 .headers(this::serviceHeaders)
-                .exchangeToMono(result -> {
-                    if (result.statusCode() == HttpStatus.NOT_FOUND) {
-                        return webClient.post()
-                                .uri(storageBase() + "/bucket")
-                                .headers(this::serviceHeaders)
-                                .contentType(MediaType.APPLICATION_JSON)
-                                .bodyValue(Map.of(
-                                        "id", bucket,
-                                        "name", bucket,
-                                        "public", false,
-                                        "file_size_limit", maxFileBytes,
-                                        "allowed_mime_types", AttachmentPolicy.allowedMimeTypes()))
-                                .retrieve()
-                                .bodyToMono(String.class);
-                    }
-                    if (result.statusCode().isError()) {
-                        return result.createException().flatMap(reactor.core.publisher.Mono::error);
-                    }
-                    return result.bodyToMono(String.class);
-                })
+                .exchangeToMono(result -> result.bodyToMono(String.class)
+                        .defaultIfEmpty("")
+                        .flatMap(responseBody -> {
+                            if (bucketMissing(result.statusCode(), responseBody)) {
+                                return createPrivateBucket();
+                            }
+                            if (result.statusCode().isError()) {
+                                return Mono.error(new IllegalStateException(
+                                        "Attachment bucket lookup failed with HTTP "
+                                                + result.statusCode().value()));
+                            }
+                            return Mono.just(responseBody);
+                        }))
                 .timeout(Duration.ofSeconds(timeoutSeconds))
                 .block();
 
@@ -131,6 +126,34 @@ public class SupabaseAttachmentStorage {
             }
         }
         bucketVerified.set(true);
+    }
+
+    boolean bucketMissing(HttpStatusCode status, String responseBody) {
+        if (status == HttpStatus.NOT_FOUND) return true;
+        if (status != HttpStatus.BAD_REQUEST || responseBody == null || responseBody.isBlank()) {
+            return false;
+        }
+        try {
+            JsonNode error = objectMapper.readTree(responseBody);
+            return "404".equals(error.path("statusCode").asText());
+        } catch (Exception ignored) {
+            return false;
+        }
+    }
+
+    private Mono<String> createPrivateBucket() {
+        return webClient.post()
+                .uri(storageBase() + "/bucket")
+                .headers(this::serviceHeaders)
+                .contentType(MediaType.APPLICATION_JSON)
+                .bodyValue(Map.of(
+                        "id", bucket,
+                        "name", bucket,
+                        "public", false,
+                        "file_size_limit", maxFileBytes,
+                        "allowed_mime_types", AttachmentPolicy.allowedMimeTypes()))
+                .retrieve()
+                .bodyToMono(String.class);
     }
 
     private void ensureConfigured() {
