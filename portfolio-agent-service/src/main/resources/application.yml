@@ -15,6 +15,8 @@ spring:
   data:
     redis:
       url: ${REDIS_URL:redis://localhost:6379}
+  codec:
+    max-in-memory-size: ${AGENT_HTTP_MAX_IN_MEMORY_SIZE:10MB}
 
 agent:
   model:
@@ -59,6 +61,27 @@ agent:
     idle-compact-ms: ${AGENT_MEMORY_IDLE_COMPACT_MS:600000}
     idle-scan-interval-ms: ${AGENT_MEMORY_IDLE_SCAN_INTERVAL_MS:60000}
     tool-result-max-chars: ${AGENT_MEMORY_TOOL_RESULT_MAX_CHARS:3000}
+
+  attachments:
+    # Raw files live only in this private bucket. Redis owns the sliding lease
+    # and stores only opaque metadata plus compact parser output.
+    supabase-url: ${SUPABASE_URL:}
+    service-role-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+    bucket: ${AGENT_ATTACHMENT_BUCKET:chat-agent-private}
+    signing-secret: ${ATTACHMENT_SIGNING_SECRET:${AGENT_SERVICE_INTERNAL_TOKEN:}}
+    max-files-per-conversation: ${AGENT_ATTACHMENT_MAX_FILES_PER_CONVERSATION:2}
+    max-files-per-request: ${AGENT_ATTACHMENT_MAX_FILES_PER_REQUEST:2}
+    max-file-bytes: ${AGENT_ATTACHMENT_MAX_FILE_BYTES:5242880}
+    max-total-bytes: ${AGENT_ATTACHMENT_MAX_TOTAL_BYTES:8388608}
+    max-context-chars: ${AGENT_ATTACHMENT_MAX_CONTEXT_CHARS:6000}
+    max-parser-text-chars: ${AGENT_ATTACHMENT_MAX_PARSER_TEXT_CHARS:200000}
+    max-uploads-per-hour: ${AGENT_ATTACHMENT_MAX_UPLOADS_PER_HOUR:8}
+    max-global-uploads-per-day: ${AGENT_ATTACHMENT_MAX_GLOBAL_UPLOADS_PER_DAY:250}
+    upload-url-ttl-seconds: ${AGENT_ATTACHMENT_UPLOAD_URL_TTL_SECONDS:300}
+    lease-seconds: ${AGENT_ATTACHMENT_LEASE_SECONDS:${AGENT_MEMORY_TTL_SECONDS:1800}}
+    cleanup-record-ttl-seconds: ${AGENT_ATTACHMENT_CLEANUP_RECORD_TTL_SECONDS:86400}
+    cleanup-interval-ms: ${AGENT_ATTACHMENT_CLEANUP_INTERVAL_MS:60000}
+    storage-timeout-seconds: ${AGENT_ATTACHMENT_STORAGE_TIMEOUT_SECONDS:20}
 
   budget:
     enabled: ${AGENT_BUDGET_ENABLED:true}

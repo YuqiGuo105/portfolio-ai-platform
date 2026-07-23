@@ -10,7 +10,9 @@ import org.springframework.stereotype.Service;
 import org.springframework.web.reactive.function.client.WebClient;
 import reactor.core.publisher.Flux;
 
+import java.nio.charset.StandardCharsets;
 import java.time.Duration;
+import java.util.Base64;
 import java.util.List;
 import java.util.Map;
 
@@ -140,6 +142,27 @@ public class GeminiGenerationService {
         return extractFullText(response);
     }
 
+    /**
+     * Uses the low-cost utility model for bounded multimodal document
+     * extraction. The caller owns origin, MIME, and size validation.
+     */
+    public String generateWithDocuments(String systemPrompt,
+                                        String userMessage,
+                                        List<InlineDocument> documents) {
+        String url = baseUrl + "/models/" + utilityModel + ":generateContent?key=" + apiKey;
+        ObjectNode requestBody = buildDocumentRequest(systemPrompt, userMessage, documents);
+
+        String response = webClient.post()
+                .uri(url)
+                .header("Content-Type", "application/json")
+                .bodyValue(requestBody.toString())
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(Duration.ofSeconds(45))
+                .block();
+        return extractFullText(response);
+    }
+
     public String modelFor(boolean deepMode) {
         return deepMode ? deepGenerationModel : generationModel;
     }
@@ -197,6 +220,46 @@ public class GeminiGenerationService {
         return root;
     }
 
+    private ObjectNode buildDocumentRequest(String systemPrompt,
+                                            String userMessage,
+                                            List<InlineDocument> documents) {
+        ObjectNode root = objectMapper.createObjectNode();
+        if (systemPrompt != null && !systemPrompt.isBlank()) {
+            ObjectNode system = objectMapper.createObjectNode();
+            system.set("parts", objectMapper.createArrayNode()
+                    .add(objectMapper.createObjectNode().put("text", systemPrompt)));
+            root.set("systemInstruction", system);
+        }
+
+        ArrayNode parts = objectMapper.createArrayNode();
+        parts.add(objectMapper.createObjectNode().put("text", userMessage));
+        for (InlineDocument document : documents == null ? List.<InlineDocument>of() : documents) {
+            parts.add(objectMapper.createObjectNode()
+                    .put("text", "\nAttached file: " + document.name()));
+            if (site.yuqi.agent.attachment.AttachmentPolicy.isTextMimeType(document.mimeType())) {
+                parts.add(objectMapper.createObjectNode().put(
+                        "text", new String(document.content(), StandardCharsets.UTF_8)));
+            } else {
+                ObjectNode inlineData = objectMapper.createObjectNode();
+                inlineData.put("mimeType", document.mimeType());
+                inlineData.put("data", Base64.getEncoder().encodeToString(document.content()));
+                parts.add(objectMapper.createObjectNode().set("inlineData", inlineData));
+            }
+        }
+        ObjectNode user = objectMapper.createObjectNode();
+        user.put("role", "user");
+        user.set("parts", parts);
+        root.set("contents", objectMapper.createArrayNode().add(user));
+
+        ObjectNode generationConfig = objectMapper.createObjectNode();
+        generationConfig.put("maxOutputTokens", utilityMaxOutputTokens);
+        generationConfig.put("temperature", 0.1);
+        generationConfig.putObject("thinkingConfig")
+                .put("thinkingBudget", utilityThinkingBudget);
+        root.set("generationConfig", generationConfig);
+        return root;
+    }
+
     private GroundedChunk extractGroundedChunk(String sseData) {
         try {
             String json = sseData.startsWith("data:") ? sseData.substring(5).trim() : sseData;
@@ -224,6 +287,7 @@ public class GeminiGenerationService {
 
     public record GroundedChunk(String text, List<GroundedSource> sources) {}
     public record GroundedSource(String url, String title) {}
+    public record InlineDocument(String name, String mimeType, byte[] content) {}
 
     private String extractTextDelta(String sseData) {
         try {

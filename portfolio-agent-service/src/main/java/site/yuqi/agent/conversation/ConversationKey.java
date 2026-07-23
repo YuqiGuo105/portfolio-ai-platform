@@ -28,8 +28,14 @@ public final class ConversationKey {
                 cookie(request, "deviceId"),
                 cookie(request, "chatDeviceId"),
                 userAgentBucket(request));
-        String ip = firstForwardedIp(request);
-        String material = "conv:" + stableSession + "|" + ip + "|" + blankTo(deviceId, "unknown-device");
+        String stableDevice = blankTo(deviceId, "unknown-device");
+        String material = "conv:" + stableSession + "|" + stableDevice;
+        // IP is only a fallback tiebreaker when no stable device signal exists.
+        // Including it unconditionally breaks a conversation when a mobile IP
+        // changes or when one request crosses a trusted BFF.
+        if ("unknown-device".equals(stableDevice) || "unknown-ua".equals(stableDevice)) {
+            material += "|" + firstForwardedIp(request);
+        }
         return "conv_" + sha256(material).substring(0, 40);
     }
 

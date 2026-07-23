@@ -25,6 +25,9 @@ public class AgentStreamRequest {
     private String conversationId;
     private String mode;          // "FAST" or "DEEPTHINKING"
     private String scopeMode;     // "OWNER_ONLY" or "GENERAL"
+    /** Opaque, backend-issued attachment references. Raw/public URLs are not accepted. */
+    private List<AttachmentReference> attachments;
+    /** Legacy field retained for wire compatibility; the backend intentionally ignores it. */
     private List<String> fileUrls;
     private String userId;
     private String userEmail;
@@ -41,5 +44,16 @@ public class AgentStreamRequest {
     public static class ConversationTurn {
         private String role;
         private String content;
+    }
+
+    @Data
+    @NoArgsConstructor
+    @AllArgsConstructor
+    @JsonIgnoreProperties(ignoreUnknown = true)
+    public static class AttachmentReference {
+        private String id;
+        private String name;
+        private String mimeType;
+        private Long sizeBytes;
     }
 }

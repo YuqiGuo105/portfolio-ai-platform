@@ -81,6 +81,24 @@ public class RedisConversationStore {
         return memory;
     }
 
+    public ConversationMemory mergeStructuredState(String conversationId,
+                                                   String key,
+                                                   Object value) {
+        if (conversationId == null || conversationId.isBlank()
+                || key == null || key.isBlank()) {
+            return ConversationMemory.empty(
+                    conversationId == null ? "anonymous" : conversationId);
+        }
+        ConversationMemory memory = load(conversationId);
+        Map<String, Object> state = memory.getStructuredState() == null
+                ? new java.util.LinkedHashMap<>()
+                : new java.util.LinkedHashMap<>(memory.getStructuredState());
+        state.put(key, value);
+        memory.setStructuredState(state);
+        save(memory);
+        return memory;
+    }
+
     public List<String> scanConversationIds() {
         List<String> ids = new ArrayList<>();
         try (Cursor<String> cursor = redisTemplate.scan(

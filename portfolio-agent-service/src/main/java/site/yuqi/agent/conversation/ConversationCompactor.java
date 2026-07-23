@@ -93,7 +93,7 @@ public class ConversationCompactor {
 
         Map<String, Object> summary = summarize(memory, oldTurns);
         memory.setCompactSummary(summary);
-        memory.setStructuredState(structuredState(summary));
+        memory.setStructuredState(structuredState(memory.getStructuredState(), summary));
         memory.setTurns(recentTurns);
         redisStore.save(memory);
         log.info("Conversation compacted conversationId={} compressedTurns={} retainedTurns={}",
@@ -138,8 +138,11 @@ public class ConversationCompactor {
         return out;
     }
 
-    private Map<String, Object> structuredState(Map<String, Object> summary) {
-        Map<String, Object> state = new LinkedHashMap<>();
+    private Map<String, Object> structuredState(Map<String, Object> existing,
+                                                Map<String, Object> summary) {
+        Map<String, Object> state = existing == null
+                ? new LinkedHashMap<>()
+                : new LinkedHashMap<>(existing);
         Object entities = summary.get("entities");
         if (entities instanceof Map<?, ?>) state.put("entities", entities);
         Object openQuestions = summary.get("openQuestions");

@@ -225,6 +225,7 @@ public class OpenAiIntentClassifier implements IntentClassifier {
             10. normalizedQuery can be an English paraphrase suitable for internal search.
             11. Infer continuations and references semantically from the current utterance, trusted recent messages, compact state, and pending action context. Do not use phrase lists or worked examples.
             12. Choose responsePolicy, responseConstraints, and generationTier as part of the same semantic decision. Use only values allowed by the output schema.
+            13. Trusted attachmentContext in structuredState is user-supplied evidence. When answering the current request requires reasoning over that evidence and no operational tool is needed, select a generation route rather than returning a canned conversational response.
 
             %s
 

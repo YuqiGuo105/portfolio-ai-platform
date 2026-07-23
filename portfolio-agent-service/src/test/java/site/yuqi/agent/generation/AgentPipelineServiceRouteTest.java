@@ -3,6 +3,7 @@ package site.yuqi.agent.generation;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
 import org.mockito.ArgumentCaptor;
+import site.yuqi.agent.attachment.AttachmentContextService;
 import site.yuqi.agent.budget.BudgetDecision;
 import site.yuqi.agent.budget.ChatBudgetService;
 import site.yuqi.agent.client.KnowledgeClient;
@@ -55,6 +56,7 @@ class AgentPipelineServiceRouteTest {
     private MemoryWriter memoryWriter;
     private ChatBudgetService chatBudgetService;
     private EventRecorder eventRecorder;
+    private AttachmentContextService attachmentContextService;
     private AgentPipelineService service;
 
     @BeforeEach
@@ -69,6 +71,7 @@ class AgentPipelineServiceRouteTest {
         memoryWriter = mock(MemoryWriter.class);
         chatBudgetService = mock(ChatBudgetService.class);
         eventRecorder = mock(EventRecorder.class);
+        attachmentContextService = mock(AttachmentContextService.class);
 
         service = new AgentPipelineService(
                 safetyService,
@@ -82,7 +85,8 @@ class AgentPipelineServiceRouteTest {
                 contextLoader,
                 memoryWriter,
                 chatBudgetService,
-                new WebGuidePlanService());
+                new WebGuidePlanService(),
+                attachmentContextService);
 
         SafetyCheckResult pass = SafetyCheckResult.builder()
                 .verdict(SafetyVerdict.PASS)
@@ -92,6 +96,8 @@ class AgentPipelineServiceRouteTest {
         when(safetyService.checkOutput(anyString(), any())).thenReturn(pass);
         when(safetyService.checkOutputWithContext(any(OutputSafetyContext.class), any())).thenReturn(pass);
         when(contextLoader.load(any(), any())).thenReturn(PlannerContext.empty(List.of()));
+        when(attachmentContextService.resolve(any(), anyString(), any()))
+                .thenReturn(AttachmentContextService.AttachmentContext.empty());
         when(responseLanguageService.alignToInputLanguage(anyString(), anyString()))
                 .thenAnswer(invocation -> invocation.getArgument(1));
         when(generationService.modelFor(anyBoolean()))
