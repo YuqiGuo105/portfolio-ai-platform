@@ -18,12 +18,14 @@ import java.time.Duration;
 public class KnowledgeClient {
 
     private final WebClient webClient;
+    private final Duration timeout;
 
     public KnowledgeClient(WebClient.Builder builder,
                            @Value("${knowledge.base-url:http://localhost:8092}") String baseUrl,
                            @Value("${knowledge.timeout-ms:10000}") int timeoutMs) {
         this.webClient = builder.baseUrl(baseUrl)
                 .build();
+        this.timeout = Duration.ofMillis(Math.max(1000, timeoutMs));
     }
 
     public KnowledgeSearchResponse search(String query, int topK) {
@@ -38,7 +40,7 @@ public class KnowledgeClient {
                     .bodyValue(request)
                     .retrieve()
                     .bodyToMono(KnowledgeSearchResponse.class)
-                    .timeout(Duration.ofSeconds(10))
+                    .timeout(timeout)
                     .block();
         } catch (Exception e) {
             log.error("Knowledge search failed: {}", e.getMessage());

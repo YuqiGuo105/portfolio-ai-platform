@@ -162,7 +162,8 @@ observability:
 # ─── Knowledge Service ───────────────────────────────────────────────────
 knowledge:
   base-url: ${KNOWLEDGE_SERVICE_BASE_URL:http://localhost:8092}
-  timeout-ms: ${KNOWLEDGE_TIMEOUT_MS:10000}
+  # Allows a scale-to-zero Knowledge Service to finish its cold start.
+  timeout-ms: ${KNOWLEDGE_TIMEOUT_MS:25000}
 
 # ─── Safety + Handoff ────────────────────────────────────────────────────
 safety:
