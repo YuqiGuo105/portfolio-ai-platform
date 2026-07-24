@@ -12,6 +12,7 @@ public class OpenSearchProperties {
     private String username;
     private String password;
     private String knowledgeIndex = "knowledge-chunks-v1";
+    private String contentIndex = "portfolio_content_current";
     private int embeddingDimension = 768;
     private int connectTimeoutMs = 5000;
     private int socketTimeoutMs = 30000;

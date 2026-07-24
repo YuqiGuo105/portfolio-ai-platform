@@ -4,6 +4,9 @@ server:
     include-message: always
     include-stacktrace: always
 
+portfolio:
+  public-base-url: ${PORTFOLIO_PUBLIC_BASE_URL:https://www.yuqi.site}
+
 spring:
   application:
     name: knowledge-service
@@ -14,6 +17,7 @@ knowledge:
     username: ${OPENSEARCH_USERNAME:avnadmin}
     password: ${OPENSEARCH_PASSWORD:}
     knowledge-index: ${OPENSEARCH_INDEX_KNOWLEDGE:knowledge-chunks-v1}
+    content-index: ${OPENSEARCH_INDEX_CONTENT:portfolio_content_current}
     embedding-dimension: ${EMBEDDING_DIMENSION:768}
     connect-timeout-ms: 5000
     socket-timeout-ms: 30000

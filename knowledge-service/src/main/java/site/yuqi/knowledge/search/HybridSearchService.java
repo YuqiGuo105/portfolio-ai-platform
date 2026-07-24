@@ -25,6 +25,7 @@ public class HybridSearchService {
 
     private final OpenSearchKnowledgeRepository repository;
     private final EmbeddingClient embeddingClient;
+    private final KnowledgeSourceUrlResolver sourceUrlResolver;
 
     @Value("${knowledge.search.default-top-k:8}")
     private int defaultTopK;
@@ -36,21 +37,30 @@ public class HybridSearchService {
         long start = System.currentTimeMillis();
         int topK = request.topK() > 0 ? request.topK() : defaultTopK;
 
-        // 1. Embed query
-        float[] queryEmbedding = embeddingClient.embed(request.query());
-
-        // 2. BM25 keyword search
+        // 1. BM25 keyword search
         List<KnowledgeChunk> bm25Results = repository.keywordSearch(
                 request.query(), request.visibility(), request.locale(), topK * 2);
 
-        // 3. kNN vector search
-        List<KnowledgeChunk> vectorResults = repository.vectorSearch(
-                queryEmbedding, request.visibility(), request.locale(), topK * 2);
+        // 2. kNN vector search. BM25 and the content projection remain
+        // available if the external embedding provider is temporarily down.
+        List<KnowledgeChunk> vectorResults;
+        try {
+            float[] queryEmbedding = embeddingClient.embed(request.query());
+            vectorResults = repository.vectorSearch(
+                    queryEmbedding, request.visibility(), request.locale(), topK * 2);
+        } catch (RuntimeException e) {
+            log.warn("Vector retrieval unavailable; continuing with BM25: {}", e.getMessage());
+            vectorResults = List.of();
+        }
 
-        // 4. RRF merge
+        // 3. RRF merge
         List<KnowledgeChunk> merged = reciprocalRankFusion(bm25Results, vectorResults, topK);
+        boolean contentProjectionFallback = merged.isEmpty();
+        if (contentProjectionFallback) {
+            merged = repository.contentProjectionSearch(request.query(), topK);
+        }
 
-        // 5. Build response
+        // 4. Build response
         List<ChunkHit> hits = merged.stream()
                 .map(c -> ChunkHit.builder()
                         .chunkId(c.chunkId())
@@ -59,13 +69,14 @@ public class HybridSearchService {
                         .content(c.content())
                         .sourceType(c.sourceType())
                         .sourceId(c.sourceId())
+                        .sourceUrl(sourceUrlResolver.resolve(c))
                         .score(0.0) // RRF score not directly comparable
                         .build())
                 .toList();
 
         int latencyMs = (int) (System.currentTimeMillis() - start);
-        log.info("Hybrid search completed: bm25={} vector={} merged={} latency={}ms",
-                bm25Results.size(), vectorResults.size(), hits.size(), latencyMs);
+        log.info("Hybrid search completed: bm25={} vector={} contentFallback={} merged={} latency={}ms",
+                bm25Results.size(), vectorResults.size(), contentProjectionFallback, hits.size(), latencyMs);
 
         return KnowledgeSearchResponse.builder()
                 .queryId(UUID.randomUUID().toString())

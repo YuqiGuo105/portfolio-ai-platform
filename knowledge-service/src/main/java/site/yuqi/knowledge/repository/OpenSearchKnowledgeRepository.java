@@ -10,6 +10,8 @@ import site.yuqi.knowledge.config.OpenSearchProperties;
 import site.yuqi.knowledge.model.KnowledgeChunk;
 
 import java.io.IOException;
+import java.util.ArrayList;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Map;
 
@@ -72,6 +74,67 @@ public class OpenSearchKnowledgeRepository {
     }
 
     /**
+     * Reads the content-search projection when the chunk index has no result.
+     *
+     * <p>The projection has existed in both snake_case and camelCase shapes;
+     * the mapper accepts both so an alias migration does not break chat links.
+     */
+    public List<KnowledgeChunk> contentProjectionSearch(String query, int topK) {
+        try {
+            var response = client.search(s -> s
+                            .index(props.getContentIndex())
+                            .size(topK)
+                            .query(q -> q.multiMatch(mm -> mm
+                                    .query(query)
+                                    .fields(List.of(
+                                            "title^4",
+                                            "summary^2",
+                                            "content",
+                                            "body",
+                                            "tags^2",
+                                            "category",
+                                            "search_terms^1.5")))),
+                    Map.class);
+
+            List<KnowledgeChunk> results = new ArrayList<>();
+            for (Hit<Map> hit : response.hits().hits()) {
+                Map<String, Object> source = hit.source();
+                if (source == null) continue;
+                String documentId = firstText(source, "id", "document_id");
+                if (documentId == null) documentId = hit.id();
+                String sourceType = firstText(source, "source_type", "type");
+                String sourceId = firstText(source, "source_id");
+                if (sourceId == null && documentId != null && documentId.contains(":")) {
+                    sourceId = documentId.substring(documentId.indexOf(':') + 1);
+                }
+                if (sourceType == null && documentId != null && documentId.contains(":")) {
+                    sourceType = documentId.substring(0, documentId.indexOf(':'));
+                }
+                String title = firstText(source, "title");
+                String content = joinContent(
+                        firstText(source, "summary"),
+                        firstText(source, "content", "body"));
+                if (title == null && content == null) continue;
+
+                results.add(KnowledgeChunk.builder()
+                        .chunkId("content:" + documentId)
+                        .documentId(documentId)
+                        .sourceType(sourceType)
+                        .sourceId(sourceId)
+                        .sourceUrl(firstText(source, "url"))
+                        .title(title)
+                        .content(content)
+                        .visibility(firstText(source, "visibility"))
+                        .build());
+            }
+            return List.copyOf(results);
+        } catch (IOException | RuntimeException e) {
+            log.warn("Content projection search failed: {}", e.getMessage());
+            return List.of();
+        }
+    }
+
+    /**
      * kNN vector search。
      */
     public List<KnowledgeChunk> vectorSearch(float[] embedding, List<String> visibility, String locale, int topK) {
@@ -113,5 +176,20 @@ public class OpenSearchKnowledgeRepository {
             log.error("Vector search failed: {}", e.getMessage());
             return List.of();
         }
+    }
+
+    private static String firstText(Map<String, Object> source, String... keys) {
+        for (String key : keys) {
+            Object value = source.get(key);
+            if (value != null && !value.toString().isBlank()) return value.toString().trim();
+        }
+        return null;
+    }
+
+    private static String joinContent(String summary, String body) {
+        LinkedHashMap<String, String> unique = new LinkedHashMap<>();
+        if (summary != null && !summary.isBlank()) unique.put(summary.trim(), summary.trim());
+        if (body != null && !body.isBlank()) unique.put(body.trim(), body.trim());
+        return unique.isEmpty() ? null : String.join("\n\n", unique.values());
     }
 }

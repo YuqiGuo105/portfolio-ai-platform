@@ -37,12 +37,14 @@ public class WebGuidePlanService {
             step.put("targetKey", key);
             step.put("route", target.route());
             step.put("targetId", target.targetId());
+            step.put("href", target.href());
             step.put("title", card.title());
             step.put("content", card.content());
             step.put("card", Map.of(
                     "title", card.title(),
                     "content", card.content(),
-                    "action", isChinese(language) ? "查看此区域" : "View this section"));
+                    "href", target.href(),
+                    "action", isChinese(language) ? "打开此区域" : "Open this section"));
             steps.add(Map.copyOf(step));
         }
 
@@ -105,7 +107,7 @@ public class WebGuidePlanService {
 
         public Map<String, Object> toPayload() {
             return Map.of(
-                    "schemaVersion", 1,
+                    "schemaVersion", 2,
                     "language", language,
                     "autoStart", autoStart,
                     "startMode", startMode,

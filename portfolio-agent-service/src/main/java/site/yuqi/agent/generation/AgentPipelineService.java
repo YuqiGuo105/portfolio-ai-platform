@@ -75,6 +75,8 @@ public class AgentPipelineService {
             - Detect the current user's input language and write the answer in that same language.
             - Do not switch languages just because context, retrieved chunks, or recent turns use another language.
             - When referencing projects or blog posts, mention their titles.
+            - When a relevant knowledge chunk supplies a Source URL, include the exact URL as a Markdown link
+              on the corresponding project or article title. Never invent, rewrite, or guess a URL.
             - For technical questions about Yuqi's work, provide specific details from context.
             - Follow the planner-provided response policy and constraints. For public-context estimates, clearly
               label the result as an estimate, state material assumptions, and never claim access to private records.
@@ -396,7 +398,7 @@ public class AgentPipelineService {
                     chunkIds = List.of();
                 } else {
                     contextChunks = searchResponse.results().stream()
-                            .map(hit -> "## " + (hit.title() != null ? hit.title() : "Chunk") + "\n" + hit.content())
+                            .map(AgentPipelineService::formatKnowledgeHit)
                             .collect(Collectors.joining("\n---\n"));
                     chunkCount = searchResponse.results().size();
                     chunkIds = searchResponse.results().stream()
@@ -420,6 +422,10 @@ public class AgentPipelineService {
                 sink.next(stageCompleted("knowledge_retrieval",
                         "Found " + chunkCount + " relevant chunks",
                         retrievalStageId, retrievalLatency, Map.of("chunksFound", chunkCount)));
+                List<Map<String, Object>> relatedLinks = relatedLinks(searchResponse);
+                if (!relatedLinks.isEmpty()) {
+                    sink.next(relatedLinksEvent(relatedLinks));
+                }
                 if (effectiveDeepMode) {
                     sink.next(reasoningStep("Plan the research",
                             "The evidence needed for a direct answer is clear.", true));
@@ -1155,6 +1161,45 @@ public class AgentPipelineService {
                         "favicon", "https://www.google.com/s2/favicons?domain_url=" + source.url() + "&sz=64"))
                 .toList();
         return Map.of("stage", "sources_found", "payload", Map.of("sources", cards));
+    }
+
+    private Map<String, Object> relatedLinksEvent(List<Map<String, Object>> links) {
+        return Map.of("stage", "related_links", "payload", Map.of("links", links));
+    }
+
+    static String formatKnowledgeHit(KnowledgeSearchResponse.ChunkHit hit) {
+        StringBuilder chunk = new StringBuilder("## ")
+                .append(nonBlank(hit.title(), "Chunk"))
+                .append('\n');
+        if (hit.sourceUrl() != null && !hit.sourceUrl().isBlank()) {
+            chunk.append("Source URL: ").append(hit.sourceUrl().trim()).append('\n');
+        }
+        chunk.append(nonBlank(hit.content(), ""));
+        return chunk.toString();
+    }
+
+    static List<Map<String, Object>> relatedLinks(KnowledgeSearchResponse response) {
+        if (response == null || response.results() == null) return List.of();
+        Map<String, Map<String, Object>> linksByUrl = new LinkedHashMap<>();
+        for (KnowledgeSearchResponse.ChunkHit hit : response.results()) {
+            String url = hit.sourceUrl();
+            if (url == null || url.isBlank() || linksByUrl.containsKey(url)) continue;
+            String sourceType = nonBlank(hit.sourceType(), "content").toUpperCase(java.util.Locale.ROOT);
+            String type = "PROJECT".equals(sourceType) ? "project"
+                    : sourceType.contains("BLOG") ? "blog" : "content";
+            String content = nonBlank(hit.content(), "").replaceAll("\\s+", " ").trim();
+            String snippet = content.length() <= 180 ? content : content.substring(0, 180) + "...";
+            LinkedHashMap<String, Object> link = new LinkedHashMap<>();
+            link.put("type", type);
+            link.put("id", nonBlank(hit.sourceId(), nonBlank(hit.documentId(), url)));
+            link.put("title", nonBlank(hit.title(), "Portfolio content"));
+            link.put("url", url);
+            link.put("snippet", snippet);
+            link.put("relevanceScore", hit.score());
+            linksByUrl.put(url, Map.copyOf(link));
+            if (linksByUrl.size() >= 4) break;
+        }
+        return List.copyOf(linksByUrl.values());
     }
 
     private Map<String, Object> stageCompleted(String stage,

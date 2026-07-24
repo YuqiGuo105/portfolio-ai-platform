@@ -30,6 +30,7 @@ public class IngestionService {
             String documentId,
             String sourceType,
             String sourceId,
+            String sourceUrl,
             String title,
             String content,
             String locale,
@@ -49,6 +50,7 @@ public class IngestionService {
                     .documentId(req.documentId())
                     .sourceType(req.sourceType())
                     .sourceId(req.sourceId())
+                    .sourceUrl(req.sourceUrl())
                     .title(req.title())
                     .content(chunkText)
                     .locale(req.locale() != null ? req.locale() : "en-US")

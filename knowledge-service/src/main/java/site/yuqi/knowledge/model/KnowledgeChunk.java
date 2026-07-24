@@ -16,6 +16,7 @@ public record KnowledgeChunk(
         @JsonProperty("document_id") String documentId,
         @JsonProperty("source_type") String sourceType,
         @JsonProperty("source_id") String sourceId,
+        @JsonProperty("source_url") String sourceUrl,
         String title,
         String content,
         String locale,

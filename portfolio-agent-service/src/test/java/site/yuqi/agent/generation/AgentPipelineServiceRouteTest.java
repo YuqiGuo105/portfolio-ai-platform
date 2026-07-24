@@ -26,6 +26,7 @@ import site.yuqi.agent.safety.SafetyService;
 import site.yuqi.agent.safety.SafetyVerdict;
 import site.yuqi.agent.safety.OutputSafetyContext;
 import site.yuqi.ai.contracts.event.PlatformEvent;
+import site.yuqi.ai.contracts.knowledge.KnowledgeSearchResponse;
 
 import java.math.BigDecimal;
 import java.time.Instant;
@@ -405,6 +406,60 @@ class AgentPipelineServiceRouteTest {
         assertThat(promptCaptor.getValue())
                 .contains("Input Safety Advisory")
                 .contains("PUBLIC_INFORMATION_ONLY", "STATE_UNCERTAINTY");
+    }
+
+    @Test
+    void knowledgeRoutePublishesCanonicalRelatedLinkAndPassesItToGeneration() {
+        IntentResult intent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.97, "en", "Portfolio Platform",
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "GROUNDED", List.of(), GenerationTier.STANDARD, "Looking up the project");
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenReturn(AgentRouteDecision.knowledge(intent));
+        KnowledgeSearchResponse.ChunkHit hit = KnowledgeSearchResponse.ChunkHit.builder()
+                .chunkId("project-1-0")
+                .documentId("project-1")
+                .title("Portfolio Platform")
+                .content("A production-minded event-driven portfolio platform.")
+                .score(0.9)
+                .sourceType("PROJECT")
+                .sourceId("project-1")
+                .sourceUrl("https://www.yuqi.site/work-single/project-1")
+                .build();
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder()
+                        .queryId("query-1")
+                        .results(List.of(hit))
+                        .latencyMs(15)
+                        .build());
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just(
+                        "Read [Portfolio Platform](https://www.yuqi.site/work-single/project-1)."));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                        .sessionId("project-session")
+                        .question("Portfolio Platform")
+                        .build())
+                .collectList()
+                .block();
+
+        assertThat(events).isNotNull();
+        Map<String, Object> related = events.stream()
+                .filter(event -> "related_links".equals(event.get("stage")))
+                .findFirst()
+                .orElseThrow();
+        @SuppressWarnings("unchecked")
+        List<Map<String, Object>> links =
+                (List<Map<String, Object>>) ((Map<String, Object>) related.get("payload")).get("links");
+        assertThat(links).hasSize(1);
+        assertThat(links.get(0))
+                .containsEntry("title", "Portfolio Platform")
+                .containsEntry("url", "https://www.yuqi.site/work-single/project-1");
+
+        ArgumentCaptor<String> promptCaptor = ArgumentCaptor.forClass(String.class);
+        verify(generationService).streamGenerate(anyString(), promptCaptor.capture());
+        assertThat(promptCaptor.getValue())
+                .contains("Source URL: https://www.yuqi.site/work-single/project-1");
     }
 
     @Test

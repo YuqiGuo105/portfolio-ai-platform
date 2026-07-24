@@ -31,6 +31,8 @@ class WebGuidePlanServiceTest {
         assertThat(plan.steps()).extracting(step -> step.get("targetKey"))
                 .containsExactly("home.projects", "home.contact");
         assertThat(plan.steps().get(0).get("title")).isEqualTo("项目作品");
+        assertThat(plan.steps().get(0).get("href")).isEqualTo("/#tour-projects");
+        assertThat(plan.toPayload()).containsEntry("schemaVersion", 2);
     }
 
     @Test
@@ -45,5 +47,17 @@ class WebGuidePlanServiceTest {
         assertThat(plan.autoStart()).isFalse();
         assertThat(plan.steps()).hasSize(WebGuideCatalog.allowedKeys().size());
         assertThat(plan.controls()).containsEntry("start", "Start web guide");
+    }
+
+    @Test
+    void classifierContractKeepsInformationRequestsOutOfGenericChatAndGuideRoutes() {
+        String contract = WebGuideCatalog.classifierContract();
+
+        assertThat(contract)
+                .contains("portfolio entity")
+                .contains("short title or noun phrase")
+                .contains("KNOWLEDGE_QA")
+                .contains("primary expected outcome is a UI action")
+                .doesNotContain("Portfolio Platform");
     }
 }

@@ -20,6 +20,7 @@ public record KnowledgeSearchResponse(
             String content,
             double score,
             String sourceType,
-            String sourceId
+            String sourceId,
+            String sourceUrl
     ) {}
 }
