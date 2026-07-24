@@ -55,9 +55,13 @@ public class HybridSearchService {
 
         // 3. RRF merge
         List<KnowledgeChunk> merged = reciprocalRankFusion(bm25Results, vectorResults, topK);
-        boolean contentProjectionFallback = merged.isEmpty();
+        boolean contentProjectionFallback = merged.isEmpty()
+                || merged.stream().noneMatch(chunk -> sourceUrlResolver.resolve(chunk) != null);
         if (contentProjectionFallback) {
-            merged = repository.contentProjectionSearch(request.query(), topK);
+            List<KnowledgeChunk> projected = repository.contentProjectionSearch(request.query(), topK);
+            if (!projected.isEmpty()) {
+                merged = projected;
+            }
         }
 
         // 4. Build response
