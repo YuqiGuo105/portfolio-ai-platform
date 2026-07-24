@@ -1,6 +1,7 @@
 package site.yuqi.agent.generation;
 
 import lombok.RequiredArgsConstructor;
+import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import site.yuqi.agent.intent.IntentClassificationException;
@@ -17,6 +18,7 @@ import site.yuqi.agent.intent.IntentValidator;
  * configured intent classifier for a structured decision and only maps the
  * returned enum/tool shape into the runtime branch that should execute.
  */
+@Slf4j
 @Service
 @RequiredArgsConstructor
 public class LlmAgentRoutePlanner {
@@ -26,6 +28,9 @@ public class LlmAgentRoutePlanner {
 
     @Value("${agent.intent.pending-action.decision-confidence:0.80}")
     private double pendingDecisionConfidence;
+
+    @Value("${agent.intent.review-general-chat:true}")
+    private boolean reviewGeneralChat;
 
     public AgentRouteDecision plan(IntentRequest request) {
         IntentResult intent = classifier.classify(request);
@@ -39,6 +44,18 @@ public class LlmAgentRoutePlanner {
             if (escalated != intent) {
                 intent = escalated;
                 validation = validator.validate(intent);
+            }
+        }
+
+        if (reviewGeneralChat && intent.intent() == IntentType.GENERAL_CHAT) {
+            try {
+                IntentResult reviewed = classifier.reviewRoute(request, intent);
+                if (reviewed != intent) {
+                    intent = reviewed;
+                    validation = validator.validate(intent);
+                }
+            } catch (IntentClassificationException e) {
+                log.debug("Semantic route review skipped: {}", e.toString());
             }
         }
 

@@ -30,4 +30,17 @@ public interface IntentClassifier {
             throws IntentClassificationException {
         return firstPass;
     }
+
+    /**
+     * Re-evaluate a structurally valid but potentially over-broad route.
+     *
+     * <p>This hook is intentionally semantic: provider implementations ask
+     * the model to adjudicate the original request against the route
+     * contract. Runtime code must not infer the route from user-text
+     * keywords.
+     */
+    default IntentResult reviewRoute(IntentRequest request, IntentResult firstPass)
+            throws IntentClassificationException {
+        return firstPass;
+    }
 }

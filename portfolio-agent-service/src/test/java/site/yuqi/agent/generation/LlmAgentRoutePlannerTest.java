@@ -31,6 +31,7 @@ class LlmAgentRoutePlannerTest {
         validator = mock(IntentValidator.class);
         planner = new LlmAgentRoutePlanner(classifier, validator);
         ReflectionTestUtils.setField(planner, "pendingDecisionConfidence", 0.80);
+        ReflectionTestUtils.setField(planner, "reviewGeneralChat", true);
         request = IntentRequest.builder()
                 .sessionId("s1")
                 .pendingActionId("pending-1")
@@ -79,6 +80,52 @@ class LlmAgentRoutePlannerTest {
 
         assertThat(decision.route()).isEqualTo(AgentRoute.WEB_GUIDE);
         assertThat(decision.intent()).isSameAs(intent);
+    }
+
+    @Test
+    void letsTheModelCorrectAnOverBroadGeneralChatRoute() {
+        IntentResult firstPass = new IntentResult(
+                IntentType.GENERAL_CHAT, null, 0.95, "en", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        IntentResult reviewed = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.96, "en",
+                "portfolio platform architecture",
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        when(classifier.classify(request)).thenReturn(firstPass);
+        when(classifier.reviewRoute(request, firstPass)).thenReturn(reviewed);
+        when(validator.validate(firstPass)).thenReturn(
+                IntentValidator.ValidationResult.builder()
+                        .status(IntentValidator.Status.GENERAL_CHAT)
+                        .build());
+        when(validator.validate(reviewed)).thenReturn(
+                IntentValidator.ValidationResult.builder()
+                        .status(IntentValidator.Status.GENERAL_CHAT)
+                        .build());
+
+        AgentRouteDecision decision = planner.plan(request);
+
+        assertThat(decision.route()).isEqualTo(AgentRoute.KNOWLEDGE_QA);
+        assertThat(decision.intent()).isSameAs(reviewed);
+    }
+
+    @Test
+    void preservesTheFirstPassWhenSemanticReviewIsUnavailable() {
+        IntentResult firstPass = new IntentResult(
+                IntentType.GENERAL_CHAT, null, 0.95, "en", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        when(classifier.classify(request)).thenReturn(firstPass);
+        when(classifier.reviewRoute(request, firstPass))
+                .thenThrow(new site.yuqi.agent.intent.IntentClassificationException(
+                        "review model unavailable"));
+        when(validator.validate(firstPass)).thenReturn(
+                IntentValidator.ValidationResult.builder()
+                        .status(IntentValidator.Status.GENERAL_CHAT)
+                        .build());
+
+        AgentRouteDecision decision = planner.plan(request);
+
+        assertThat(decision.route()).isEqualTo(AgentRoute.GENERAL_CHAT);
+        assertThat(decision.intent()).isSameAs(firstPass);
     }
 
     private static IntentResult pendingIntent(IntentType type, double confidence, String question) {

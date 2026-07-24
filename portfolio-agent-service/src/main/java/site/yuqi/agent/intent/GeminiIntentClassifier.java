@@ -96,16 +96,33 @@ public class GeminiIntentClassifier implements IntentClassifier {
         return classifyWithModel(request, escalationModel);
     }
 
+    @Override
+    public IntentResult reviewRoute(IntentRequest request, IntentResult firstPass) {
+        String reviewModel = escalationModel == null || escalationModel.isBlank()
+                ? defaultModel
+                : escalationModel;
+        log.debug("Reviewing intent route with model {}", reviewModel);
+        return classifyWithModel(
+                request,
+                reviewModel,
+                buildRouteReviewSystemPrompt(),
+                buildRouteReviewUserPrompt(request, firstPass));
+    }
+
     // ── Internals ───────────────────────────────────────────────────────
 
     private IntentResult classifyWithModel(IntentRequest request, String model) {
+        return classifyWithModel(request, model, buildSystemPrompt(), buildUserPrompt(request));
+    }
+
+    private IntentResult classifyWithModel(IntentRequest request,
+                                           String model,
+                                           String systemPrompt,
+                                           String userPrompt) {
         if (apiKey == null || apiKey.isBlank()) {
             throw new IntentClassificationException(
                     "GEMINI_API_KEY is not configured — cannot classify intent.");
         }
-
-        String systemPrompt = buildSystemPrompt();
-        String userPrompt = buildUserPrompt(request);
 
         // Request body — Gemini v1beta generateContent shape
         ObjectNode body = objectMapper.createObjectNode();
@@ -282,6 +299,33 @@ public class GeminiIntentClassifier implements IntentClassifier {
               "progressMessage": "<short user-facing progress message in the user's language; no hidden reasoning>"
             }
             """.formatted(LocalDate.now(ZoneOffset.UTC), WebGuideCatalog.classifierContract(), toolsBlock);
+    }
+
+    private String buildRouteReviewSystemPrompt() {
+        return buildSystemPrompt() + """
+
+            You are now the route adjudicator. The input includes the original
+            request context and a first-pass route. Re-evaluate the request
+            independently against the complete route contract above.
+
+            A GENERAL_CHAT result is valid only when answering requires no
+            portfolio content, no grounded retrieval, no interactive website
+            navigation, and no operational tool. If any specialized route is
+            semantically required, return that route instead. Do not preserve
+            the first-pass result merely because it was supplied. Return the
+            same strict JSON schema as the primary classifier.
+            """;
+    }
+
+    private String buildRouteReviewUserPrompt(IntentRequest request, IntentResult firstPass) {
+        ObjectNode review = objectMapper.createObjectNode();
+        try {
+            review.set("request", objectMapper.readTree(buildUserPrompt(request)));
+        } catch (JsonProcessingException e) {
+            review.put("request", buildUserPrompt(request));
+        }
+        review.set("firstPass", objectMapper.valueToTree(firstPass));
+        return review.toString();
     }
 
     private String buildUserPrompt(IntentRequest request) {
