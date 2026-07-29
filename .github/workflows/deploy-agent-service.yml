@@ -21,6 +21,10 @@ permissions:
   contents: read
   id-token: write
 
+concurrency:
+  group: deploy-portfolio-agent-service
+  cancel-in-progress: false
+
 env:
   PROJECT_ID:        ${{ vars.GCP_PROJECT_ID }}
   REGION:            ${{ vars.GCP_REGION }}
@@ -38,6 +42,7 @@ env:
   GENERATION_MODEL: ${{ vars.GENERATION_MODEL || 'gemini-2.5-flash' }}
   DEEP_GENERATION_MODEL: ${{ vars.DEEP_GENERATION_MODEL || 'gemini-2.5-pro' }}
   UTILITY_GENERATION_MODEL: ${{ vars.UTILITY_GENERATION_MODEL || 'gemini-2.5-flash-lite' }}
+  DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}
 
 jobs:
   deploy:
@@ -50,6 +55,8 @@ jobs:
     steps:
       - name: Checkout
         uses: actions/checkout@v4
+        with:
+          ref: ${{ env.DEPLOY_SHA }}
 
       - name: Set up JDK 21
         uses: actions/setup-java@v4
@@ -70,7 +77,7 @@ jobs:
           elif [[ "${GITHUB_REF}" == refs/tags/agent-v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           else
-            TAG="sha-$(echo "${GITHUB_SHA}" | cut -c1-7)"
+            TAG="sha-$(echo "${DEPLOY_SHA}" | cut -c1-7)"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "Resolved image tag: ${TAG}"

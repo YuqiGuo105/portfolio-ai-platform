@@ -1,7 +1,6 @@
-name: Deploy portfolio-mcp-gateway
+name: Deploy knowledge-service
 
 on:
-  # Auto-deploy when CI passes on main (green-gate)
   workflow_run:
     workflows: ["CI \u2013 Build & Test"]
     branches: [main]
@@ -15,38 +14,37 @@ on:
         type: string
   push:
     tags:
-      - "gateway-v*"
+      - "knowledge-v*"
 
 permissions:
   contents: read
   id-token: write
 
 concurrency:
-  group: deploy-portfolio-mcp-gateway
+  group: deploy-knowledge-service
   cancel-in-progress: false
 
 env:
   PROJECT_ID:        ${{ vars.GCP_PROJECT_ID }}
   REGION:            ${{ vars.GCP_REGION }}
   ARTIFACT_REPO:     ${{ vars.ARTIFACT_REPO }}
-  IMAGE_NAME:        portfolio-mcp-gateway
-  SERVICE_NAME:      portfolio-mcp-gateway
+  IMAGE_NAME:        knowledge-service
+  SERVICE_NAME:      knowledge-service
   WIF_PROVIDER:      ${{ vars.WIF_PROVIDER }}
   DEPLOYER_SA_EMAIL: ${{ vars.DEPLOYER_SA_EMAIL }}
-  RUNTIME_SA_EMAIL:  ${{ vars.GATEWAY_RUNTIME_SA_EMAIL }}
+  RUNTIME_SA_EMAIL:  ${{ vars.AGENT_RUNTIME_SA_EMAIL }}
   DEPLOY_SHA:        ${{ github.event.workflow_run.head_sha || github.sha }}
-  ALLOWED_ORIGINS:   ${{ vars.ALLOWED_ORIGINS }}
 
 jobs:
   deploy:
-    # When triggered by workflow_run, only proceed if CI succeeded.
     if: >
       github.event_name != 'workflow_run' ||
       github.event.workflow_run.conclusion == 'success'
     runs-on: ubuntu-latest
+    timeout-minutes: 20
 
     steps:
-      - name: Checkout
+      - name: Checkout CI-approved commit
         uses: actions/checkout@v4
         with:
           ref: ${{ env.DEPLOY_SHA }}
@@ -58,24 +56,22 @@ jobs:
           java-version: "21"
           cache: maven
 
-      - name: Build gateway JAR
-        run: |
-          mvn -B -DskipTests=false -pl portfolio-mcp-gateway -am package
+      - name: Build knowledge service
+        run: mvn -B -ntp -DskipTests package -pl knowledge-service -am
 
-      - name: Compute image tag
+      - name: Compute immutable image tag
         id: tag
         run: |
           if [ -n "${{ github.event.inputs.image_tag }}" ]; then
             TAG="${{ github.event.inputs.image_tag }}"
-          elif [[ "${GITHUB_REF}" == refs/tags/gateway-v* ]]; then
+          elif [[ "${GITHUB_REF}" == refs/tags/knowledge-v* ]]; then
             TAG="${GITHUB_REF#refs/tags/}"
           else
             TAG="sha-$(echo "${DEPLOY_SHA}" | cut -c1-7)"
           fi
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "Resolved image tag: ${TAG}"
 
-      - name: Authenticate to Google Cloud (Workload Identity Federation)
+      - name: Authenticate to Google Cloud
         uses: google-github-actions/auth@v2
         with:
           workload_identity_provider: ${{ env.WIF_PROVIDER }}
@@ -84,15 +80,13 @@ jobs:
       - name: Set up gcloud
         uses: google-github-actions/setup-gcloud@v2
 
-      - name: Configure Docker for Artifact Registry
-        run: gcloud auth configure-docker ${{ env.REGION }}-docker.pkg.dev --quiet
+      - name: Configure Artifact Registry
+        run: gcloud auth configure-docker "${REGION}-docker.pkg.dev" --quiet
 
-      - name: Build & push image
+      - name: Build and push image
         run: |
           IMAGE="${REGION}-docker.pkg.dev/${PROJECT_ID}/${ARTIFACT_REPO}/${IMAGE_NAME}:${{ steps.tag.outputs.tag }}"
-          docker build \
-            -f portfolio-mcp-gateway/Dockerfile \
-            -t "${IMAGE}" .
+          docker build -f knowledge-service/Dockerfile -t "${IMAGE}" .
           docker push "${IMAGE}"
           echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
 
@@ -104,31 +98,38 @@ jobs:
             --project="${PROJECT_ID}" \
             --service-account="${RUNTIME_SA_EMAIL}" \
             --allow-unauthenticated \
-            --port=8091 \
+            --port=8092 \
             --min-instances=0 \
             --max-instances=1 \
+            --concurrency=80 \
             --memory=512Mi \
             --cpu=1 \
             --cpu-throttling \
+            --cpu-boost \
             --timeout=60 \
-            --set-env-vars="^|^SPRING_PROFILES_ACTIVE=prod|ALLOWED_ORIGINS=${ALLOWED_ORIGINS}|PORTFOLIO_BASE_URL=${{ vars.PORTFOLIO_BASE_URL }}|ADMIN_SERVICE_BASE_URL=${{ vars.ADMIN_SERVICE_BASE_URL }}|NOTIFICATION_SERVICE_BASE_URL=${{ vars.NOTIFICATION_SERVICE_BASE_URL }}|ANALYTICS_SERVICE_BASE_URL=${{ vars.ANALYTICS_SERVICE_BASE_URL }}|ALERTS_SERVICE_BASE_URL=https://portfolio-analytics-alerts-702193211434.us-central1.run.app" \
-            --update-secrets="MCP_GATEWAY_INTERNAL_TOKEN=MCP_GATEWAY_INTERNAL_TOKEN:latest,NOTIFICATION_INTERNAL_TOKEN=NOTIFICATION_INTERNAL_TOKEN:latest,ALERTS_INTERNAL_TOKEN=INTERNAL_API_TOKEN:latest,SPRING_DATASOURCE_URL=SPRING_DATASOURCE_URL:latest,SPRING_DATASOURCE_USERNAME=SPRING_DATASOURCE_USERNAME:latest,SPRING_DATASOURCE_PASSWORD=SPRING_DATASOURCE_PASSWORD:latest"
+            --set-env-vars="^|^SPRING_PROFILES_ACTIVE=prod|PORTFOLIO_PUBLIC_BASE_URL=${{ vars.PORTFOLIO_BASE_URL || 'https://www.yuqi.site' }}" \
+            --update-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENSEARCH_PASSWORD=OPENSEARCH_PASSWORD:latest"
 
-      - name: Smoke test (wait for ready revision)
+      - name: Verify ready revision and health
         run: |
-          for i in $(seq 1 30); do
-            LATEST_READY=$(gcloud run services describe "${SERVICE_NAME}" \
+          URL="$(gcloud run services describe "${SERVICE_NAME}" \
+            --region="${REGION}" --project="${PROJECT_ID}" \
+            --format='value(status.url)')"
+          for attempt in $(seq 1 30); do
+            LATEST_READY="$(gcloud run services describe "${SERVICE_NAME}" \
               --region="${REGION}" --project="${PROJECT_ID}" \
-              --format='value(status.latestReadyRevisionName)')
-            LATEST_CREATED=$(gcloud run services describe "${SERVICE_NAME}" \
+              --format='value(status.latestReadyRevisionName)')"
+            LATEST_CREATED="$(gcloud run services describe "${SERVICE_NAME}" \
               --region="${REGION}" --project="${PROJECT_ID}" \
-              --format='value(status.latestCreatedRevisionName)')
-            echo "ready=${LATEST_READY} created=${LATEST_CREATED}"
-            if [ -n "${LATEST_READY}" ] && [ "${LATEST_READY}" = "${LATEST_CREATED}" ]; then
-              echo "Revision ${LATEST_READY} is ready."
+              --format='value(status.latestCreatedRevisionName)')"
+            if [ -n "${LATEST_READY}" ] && [ "${LATEST_READY}" = "${LATEST_CREATED}" ] &&
+              curl --fail --silent --show-error --max-time 30 "${URL}/actuator/health" |
+                grep -q '"status":"UP"'; then
+              echo "Deployment verified: ${LATEST_READY}"
               exit 0
             fi
+            echo "Attempt ${attempt}: waiting for a healthy revision."
             sleep 5
           done
-          echo "Latest revision never became ready in time."
+          echo "Knowledge service failed its deployment health gate."
           exit 1
