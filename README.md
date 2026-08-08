@@ -7,6 +7,45 @@ The repository is intentionally small enough to run locally, but the design is
 documented as a production-grade agent platform. The diagram below is the target
 service boundary model; the module table maps that model to the current code.
 
+## System Design
+
+### Runtime Component Architecture
+
+The runtime view separates the guarded request plane, semantic orchestration,
+retrieval and tool capabilities, model delivery, and cost/reliability control.
+
+<img src="docs/architecture/agent-platform.svg" alt="AI agent platform reference architecture" width="100%" />
+
+> **Maintain this diagram:** edit [`docs/architecture/agent-platform.json`](docs/architecture/agent-platform.json), then run `node scripts/render-architecture-diagram.mjs docs/architecture/agent-platform.json`.
+
+## Production Operating Model
+
+This platform is designed as the **online reasoning plane** for the portfolio,
+not as a best-effort chatbot bolted onto the UI. The critical path is kept
+bounded and observable:
+
+- **Serving path:** authenticate caller, load compact Redis memory, run input
+  guardrails, classify route, execute retrieval/tool/model work, stream a final
+  answer, write trace events.
+- **Control path:** tool definitions, permissions, risk levels, confirmation
+  requirements, model budgets, and memory thresholds are configuration-driven.
+- **Recovery path:** every agent run emits structured events that can be
+  replayed into OpenSearch or used to rebuild dashboards without re-running the
+  user request.
+- **Cost path:** model tier, web search, and tool fan-out are tracked by route
+  so expensive paths can be throttled or downgraded before user-facing failures.
+
+Senior production expectations:
+
+| Concern | Design decision |
+|---|---|
+| Latency | SSE starts early; slow paths expose progressive reasoning cards instead of a silent spinner |
+| Safety | Input safety blocks only clearly unsafe requests; planner and policy guard own ambiguous business decisions |
+| Memory | Redis-only short-term memory with 30-minute sliding TTL and structured compaction |
+| Tooling | MCP tools are typed, allow-listed, role-gated, idempotent, and audit-redacted |
+| Observability | Each run records route, tool, safety, retrieval, model, latency, and final status events |
+| Resilience | Kafka/OpenSearch outages degrade observability first; chat serving can still return answers when core dependencies are healthy |
+
 ## Service Map
 
 | Module | Port | Current responsibility |
@@ -15,55 +54,6 @@ service boundary model; the module table maps that model to the current code.
 | `portfolio-mcp-gateway` | 8091 | Tool catalog, schema validation, permission/risk gate, idempotency, audit redaction, and domain adapter routing |
 | `knowledge-service` | 8092 | Knowledge ingestion, chunking, embedding, hybrid BM25 + vector retrieval, and OpenSearch-backed KB indexes |
 | `shared-contracts` | - | Shared event and knowledge DTOs used across services |
-
-## Reference Architecture
-
-```mermaid
-flowchart TD
-    Client["Web / Mobile Client"]
-    API["API Gateway / Chat API<br/>auth, rate limit, SSE"]
-    Store["Session Store<br/>Redis hot memory + optional DB"]
-
-    Agent["Agent Orchestrator<br/>planner + workflow"]
-    Safety["Safety Guardrails<br/>input + output"]
-    Memory["Memory Context<br/>summary + recent turns"]
-    Compact["Conversation Compactor<br/>summary, state, last turns"]
-    RAG["Retrieval / RAG<br/>hybrid search + vector index"]
-    Tools["Tool Gateway<br/>policy + execution"]
-    LLM["LLM Gateway<br/>prompt, routing, streaming, cost"]
-
-    Models["Model Providers<br/>small, reasoning, long-context, embedding, moderation"]
-    EventBus["Kafka / PubSub / Outbox<br/>agent events"]
-    Logs["Log Store<br/>OpenSearch / Data Lake"]
-    Ops["Traces / Replay / Eval<br/>analytics, billing, alerts"]
-
-    Client --> API
-    API --> Store
-    API --> Agent
-
-    Agent --> Safety
-    Agent --> Memory
-    Memory --> Store
-    Memory --> Compact
-    Compact --> Store
-    Agent --> RAG
-    Agent --> Tools
-    Agent --> LLM
-
-    LLM --> Models
-    LLM --> API
-    API --> Client
-
-    API --> EventBus
-    Agent --> EventBus
-    Safety --> EventBus
-    Compact --> EventBus
-    RAG --> EventBus
-    Tools --> EventBus
-    LLM --> EventBus
-    EventBus --> Logs
-    EventBus --> Ops
-```
 
 ## Current Implementation Mapping
 
@@ -84,44 +74,15 @@ Boot services:
 | LLM Gateway | Currently embedded in agent service via `GeminiGenerationService`, `GeminiIntentClassifier`, and `OpenAiIntentClassifier`; can be extracted later when model routing, cost controls, and retry policies grow |
 | Event Bus / Log Store | Postgres outbox plus OpenSearch publisher today; Kafka/PubSub is the production target boundary |
 
-## Hot Path
+### Agent Request Flow
 
-```mermaid
-flowchart TD
-    User["User message"] --> Chat["Chat API"]
-    Chat --> Auth["Auth / principal resolution"]
-    Auth --> ConvKey["Derive conversationId<br/>session + device + IP hash"]
-    ConvKey --> Context["Load planner context<br/>Redis summary + state + last 6 turns"]
-    Context --> InputSafety["Input safety"]
-    InputSafety --> Planner["LLM route planner"]
-    Planner --> Decision{"Route"}
+The request view shows one policy-aware planning decision, exactly one execution
+branch, guarded finalization, progressive streaming, and asynchronous memory and
+telemetry side effects.
 
-    Decision -->|MCP_TOOL| ToolPolicy["Policy + permission check"]
-    ToolPolicy --> ToolGW["MCP gateway"]
-    ToolGW --> ToolResult["Sanitized tool result"]
+<img src="docs/architecture/agent-request-flow.svg" alt="AI agent request flow" width="100%" />
 
-    Decision -->|KNOWLEDGE_QA| Retrieval["Hybrid retrieval"]
-    Retrieval --> Prompt["Prompt builder"]
-    Prompt --> LLM["LLM generation"]
-
-    Decision -->|CLARIFY| Clarify["Ask clarification"]
-    Decision -->|HANDOFF| Handoff["Human handoff confirmation"]
-    Decision -->|GENERAL_CHAT| General["Bounded general answer"]
-
-    ToolResult --> Render["Render answer from tool result"]
-    LLM --> OutputSafety["Output safety"]
-    Render --> OutputSafety
-    Clarify --> OutputSafety
-    Handoff --> OutputSafety
-    General --> OutputSafety
-
-    OutputSafety --> Stream["SSE final answer"]
-    Stream --> MemoryWrite["Write user + assistant turn to Redis"]
-    MemoryWrite --> Compact{"Compact needed?"}
-    Compact -->|No| Done["Done"]
-    Compact -->|Yes| Summary["Structured compaction<br/>summary + state + last 6 turns"]
-    Summary --> Done
-```
+> **Maintain this diagram:** edit [`docs/architecture/agent-request-flow.json`](docs/architecture/agent-request-flow.json), then run `node scripts/render-architecture-diagram.mjs docs/architecture/agent-request-flow.json`.
 
 ## Conversation Memory Policy
 

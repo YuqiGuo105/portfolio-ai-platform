@@ -1,0 +1,50 @@
+{
+  "title": "Agent Request Flow",
+  "subtitle": "Guard → Plan → execute exactly one branch → Finalize → Stream",
+  "summary": "ONE DECISION · ONE BRANCH · ONE GUARDED ANSWER",
+  "description": "Request lifecycle through the Portfolio AI Agent with isolated progress, memory, and telemetry side effects.",
+  "theme": "light",
+  "validateNoOverlap": true,
+  "width": 2300,
+  "height": 980,
+  "lanes": [
+    { "id": "request", "title": "01 · ACCEPT + GUARD", "subtitle": "identity · bounded context · input safety", "x": 140, "y": 115, "w": 500, "h": 565, "accent": "blue", "fillOpacity": 0.04, "strokeOpacity": 0.3 },
+    { "id": "plan", "title": "02 · SEMANTIC PLAN", "subtitle": "route · risk · tool · language · model tier", "x": 660, "y": 115, "w": 360, "h": 565, "accent": "green", "fillOpacity": 0.04, "strokeOpacity": 0.3 },
+    { "id": "execute", "title": "03 · EXECUTE ONE BRANCH", "subtitle": "mutually exclusive branch selection", "x": 1040, "y": 115, "w": 520, "h": 565, "accent": "purple", "fillOpacity": 0.04, "strokeOpacity": 0.3 },
+    { "id": "deliver", "title": "04 · FINALIZE + STREAM", "subtitle": "grounding · privacy · related links · SSE", "x": 1580, "y": 115, "w": 660, "h": 565, "accent": "orange", "fillOpacity": 0.04, "strokeOpacity": 0.3 },
+    { "id": "side-effects", "title": "05 · ASYNC SIDE EFFECTS", "subtitle": "sanitized memory · run telemetry · one-current-step progress", "x": 660, "y": 760, "w": 1580, "h": 165, "accent": "red", "fillOpacity": 0.03, "strokeOpacity": 0.28 }
+  ],
+  "nodes": [
+    { "id": "user", "shape": "actor", "icon": "user", "title": "User", "meta": "MESSAGE", "accent": "blue", "x": 20, "y": 330, "w": 100, "h": 112 },
+    { "id": "edge", "brand": "springboot", "brandColor": "#6db33f", "icon": "api", "title": "Chat Edge", "meta": "AUTH · CONTEXT · SSE OPEN", "accent": "blue", "x": 180, "y": 285, "w": 190, "h": 190, "details": ["emit Connecting", "load compact context"] },
+    { "id": "guard-in", "icon": "shield", "title": "Input Guard", "meta": "PASS · WARN · BLOCK", "accent": "orange", "x": 410, "y": 285, "w": 190, "h": 190, "details": ["risk + constraints", "fail closed"] },
+    { "id": "planner", "brand": "googlegemini", "brandColor": "#4285f4", "icon": "bot", "title": "Policy-aware Planner", "meta": "ONE SEMANTIC DECISION", "accent": "green", "x": 700, "y": 245, "w": 280, "h": 265, "details": ["route + confidence", "tool + risk", "language + tier", "confirm / handoff"] },
+    { "id": "knowledge", "brand": "elasticsearch", "brandColor": "#005571", "brandColorMode": "source", "icon": "search", "title": "Knowledge Branch", "meta": "HYBRID RAG", "accent": "cyan", "x": 1080, "y": 155, "w": 240, "h": 140, "details": ["retrieve · ground · generate"] },
+    { "id": "tool", "brand": "modelcontextprotocol", "brandColor": "#7255a5", "icon": "tool", "title": "Tool Branch", "meta": "POLICY + CONFIRM", "accent": "purple", "x": 1080, "y": 330, "w": 240, "h": 140, "details": ["typed call · sanitize"] },
+    { "id": "direct", "icon": "workflow", "title": "Direct Branch", "meta": "CHAT · CLARIFY · HANDOFF", "accent": "slate", "x": 1080, "y": 505, "w": 240, "h": 140, "details": ["bounded answer or escalation"] },
+    { "id": "join", "icon": "workflow", "title": "Result Join", "meta": "SELECTED BRANCH", "accent": "green", "x": 1400, "y": 290, "w": 170, "h": 190, "details": ["normalize", "attach evidence"] },
+    { "id": "finalize", "icon": "file", "title": "Answer Finalizer", "meta": "LANGUAGE + LINKS", "accent": "green", "x": 1620, "y": 255, "w": 210, "h": 225, "details": ["compose draft", "canonical links", "route metadata"] },
+    { "id": "guard-out", "icon": "shield", "title": "Output Guard", "meta": "GROUNDING · PRIVACY", "accent": "orange", "x": 1870, "y": 255, "w": 190, "h": 225, "details": ["approve", "safe rewrite", "block"] },
+    { "id": "stream", "shape": "actor", "icon": "web", "title": "Client Stream", "meta": "STATUS + ANSWER", "accent": "blue", "x": 2100, "y": 320, "w": 120, "h": 112 },
+    { "id": "memory", "shape": "cache", "brand": "redis", "brandColor": "#d82c20", "icon": "memory", "title": "Conversation Memory", "meta": "SANITIZED · 30M TTL", "accent": "red", "x": 720, "y": 800, "w": 340, "h": 88 },
+    { "id": "events", "shape": "queue", "brand": "apachekafka", "brandColor": "#231f20", "icon": "queue", "title": "Run Events", "meta": "AI.AGENT.EVENTS.V1", "metaBelow": true, "tubeHeight": 56, "accent": "purple", "x": 1230, "y": 800, "w": 280, "h": 82 },
+    { "id": "progress", "icon": "chart", "title": "Progress State", "meta": "ONE CURRENT STEP", "accent": "blue", "x": 1720, "y": 790, "w": 330, "h": 105 }
+  ],
+  "edges": [
+    { "from": "user", "to": "edge", "kind": "primary", "label": "message", "routing": "smooth" },
+    { "from": "edge", "to": "guard-in", "kind": "primary", "label": "bounded input", "routing": "smooth" },
+    { "from": "guard-in", "to": "planner", "kind": "primary", "label": "constraints", "routing": "smooth" },
+    { "from": "planner", "to": "knowledge", "fromAt": { "x": 980, "y": 300 }, "toAt": { "x": 1080, "y": 225 }, "kind": "sync", "label": "KNOWLEDGE_QA", "via": [{ "x": 1030, "y": 280 }], "labelAt": { "x": 1025, "y": 255 }, "routing": "smooth" },
+    { "from": "planner", "to": "tool", "fromAt": { "x": 980, "y": 375 }, "toAt": { "x": 1080, "y": 400 }, "kind": "sync", "label": "MCP_TOOL", "routing": "smooth" },
+    { "from": "planner", "to": "direct", "fromAt": { "x": 980, "y": 450 }, "toAt": { "x": 1080, "y": 575 }, "kind": "sync", "label": "DIRECT", "via": [{ "x": 1030, "y": 500 }], "labelAt": { "x": 1025, "y": 535 }, "routing": "smooth" },
+    { "from": "knowledge", "to": "join", "fromAt": { "x": 1320, "y": 225 }, "toAt": { "x": 1400, "y": 325 }, "kind": "primary", "label": "evidence", "routing": "smooth" },
+    { "from": "tool", "to": "join", "fromAt": { "x": 1320, "y": 400 }, "toAt": { "x": 1400, "y": 385 }, "kind": "primary", "label": "tool result", "routing": "smooth" },
+    { "from": "direct", "to": "join", "fromAt": { "x": 1320, "y": 575 }, "toAt": { "x": 1400, "y": 445 }, "kind": "primary", "label": "response", "routing": "smooth" },
+    { "from": "join", "to": "finalize", "kind": "primary", "label": "selected result", "routing": "smooth" },
+    { "from": "finalize", "to": "guard-out", "kind": "primary", "label": "draft", "routing": "smooth" },
+    { "from": "guard-out", "to": "stream", "kind": "primary", "label": "approved SSE", "routing": "smooth" },
+    { "from": "finalize", "to": "memory", "fromSide": "bottom", "toSide": "top", "kind": "data", "label": "append + compact", "via": [{ "x": 1725, "y": 690 }, { "x": 1040, "y": 690 }], "labelAt": { "x": 1320, "y": 690 }, "routing": "smooth" },
+    { "from": "planner", "to": "events", "fromSide": "bottom", "toSide": "top", "kind": "event", "label": "route + timing", "via": [{ "x": 840, "y": 720 }, { "x": 1240, "y": 720 }], "labelAt": { "x": 1110, "y": 720 }, "routing": "smooth" },
+    { "from": "edge", "to": "progress", "fromSide": "bottom", "toSide": "top", "kind": "event", "label": "step transitions", "via": [{ "x": 275, "y": 740 }, { "x": 1720, "y": 740 }], "labelAt": { "x": 1600, "y": 740 }, "routing": "smooth" }
+  ]
+}
