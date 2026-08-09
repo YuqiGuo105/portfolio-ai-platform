@@ -13,6 +13,7 @@ import org.springframework.scheduling.annotation.Scheduled;
 import org.springframework.stereotype.Component;
 
 import java.time.LocalDate;
+import java.time.Instant;
 import java.time.format.DateTimeFormatter;
 import java.util.List;
 import java.util.Map;
@@ -61,6 +62,11 @@ public class OutboxPublisher {
                                 .index(index)
                                 .id(e.id().toString())
                                 .document(doc))));
+                bulkBuilder.operations(op -> op.index(
+                        IndexOperation.of(idx -> idx
+                                .index(operationIndex(doc))
+                                .id(String.valueOf(doc.getOrDefault("eventId", e.id())))
+                                .document(operationDocument(doc)))));
             }
 
             BulkResponse response = openSearchClient.bulk(bulkBuilder.build());
@@ -75,6 +81,65 @@ public class OutboxPublisher {
             log.error("Outbox publish failed: {}", ex.getMessage());
             outboxRepo.markFailedWithRetry(pending.stream().map(OutboxRepository.OutboxEvent::id).toList());
         }
+    }
+
+    private String operationIndex(Map<String, Object> doc) {
+        Object timestamp = doc.get("timestamp");
+        LocalDate date = LocalDate.now();
+        if (timestamp != null) {
+            try {
+                date = Instant.parse(String.valueOf(timestamp)).atZone(java.time.ZoneOffset.UTC).toLocalDate();
+            } catch (RuntimeException ignored) {
+                // Current date keeps legacy events queryable if their timestamp is malformed.
+            }
+        }
+        return "platform-operation-events-" + date.format(DateTimeFormatter.ISO_LOCAL_DATE);
+    }
+
+    private Map<String, Object> operationDocument(Map<String, Object> doc) {
+        Map<String, Object> payload = doc.get("payload") instanceof Map<?, ?> raw
+                ? sanitizeAttributes(raw)
+                : Map.of();
+        Map<String, Object> operation = new java.util.LinkedHashMap<>();
+        putIfPresent(operation, "eventId", doc.get("eventId"));
+        putIfPresent(operation, "eventType", doc.get("eventType"));
+        operation.put("schemaVersion", doc.getOrDefault("schemaVersion", 1));
+        putIfPresent(operation, "occurredAt", doc.get("timestamp"));
+        putIfPresent(operation, "traceId", doc.get("traceId"));
+        putIfPresent(operation, "spanId", doc.get("spanId"));
+        putIfPresent(operation, "runId", doc.get("runId"));
+        putIfPresent(operation, "correlationId", doc.get("correlationId"));
+        putIfPresent(operation, "causationId", doc.get("causationId"));
+        putIfPresent(operation, "idempotencyKey", doc.get("idempotencyKey"));
+        putIfPresent(operation, "actor", doc.get("actor"));
+        putIfPresent(operation, "subject", doc.get("subject"));
+        putIfPresent(operation, "sourceService", doc.get("service"));
+        putIfPresent(operation, "status", doc.get("status"));
+        operation.put("attempt", doc.getOrDefault("attempt", 1));
+        putIfPresent(operation, "durationMs", doc.get("latencyMs"));
+        operation.put("attributes", payload);
+        return operation;
+    }
+
+    private Map<String, Object> sanitizeAttributes(Map<?, ?> payload) {
+        Map<String, Object> sanitized = new java.util.LinkedHashMap<>();
+        java.util.Set<String> allowed = java.util.Set.of(
+                "route", "topic", "toolName", "model", "provider", "operation",
+                "zeroHit", "returnedChunks", "retrievalStrategy", "verdict", "category",
+                "promptVersion", "generationTier", "requiresConfirmation", "riskLevel");
+        payload.forEach((key, value) -> {
+            String field = String.valueOf(key);
+            if (allowed.contains(field) && isScalar(value)) sanitized.put(field, value);
+        });
+        return sanitized;
+    }
+
+    private static boolean isScalar(Object value) {
+        return value == null || value instanceof String || value instanceof Number || value instanceof Boolean;
+    }
+
+    private static void putIfPresent(Map<String, Object> target, String key, Object value) {
+        if (value != null && (!(value instanceof String text) || !text.isBlank())) target.put(key, value);
     }
 
     private String resolveIndex(String eventType) {

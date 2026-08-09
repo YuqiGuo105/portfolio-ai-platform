@@ -22,7 +22,16 @@ public record PlatformEvent(
         String service,
         Integer latencyMs,
         String status,
-        Map<String, Object> payload
+        Map<String, Object> payload,
+        Integer schemaVersion,
+        String traceId,
+        String spanId,
+        String correlationId,
+        String causationId,
+        String idempotencyKey,
+        Map<String, Object> actor,
+        Map<String, Object> subject,
+        Integer attempt
 ) {
     public static PlatformEvent.PlatformEventBuilder now(String eventType) {
         return PlatformEvent.builder()
