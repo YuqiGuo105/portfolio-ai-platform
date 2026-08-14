@@ -13,6 +13,7 @@ import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.ArgumentMatchers.any;
 import static org.mockito.ArgumentMatchers.anyInt;
 import static org.mockito.ArgumentMatchers.anyString;
+import static org.mockito.ArgumentMatchers.isNull;
 import static org.mockito.Mockito.mock;
 import static org.mockito.Mockito.never;
 import static org.mockito.Mockito.verify;
@@ -29,7 +30,7 @@ class HybridSearchServiceTest {
         HybridSearchService service =
                 new HybridSearchService(repository, embeddingClient, urlResolver);
 
-        when(repository.keywordSearch(anyString(), any(), anyString(), anyInt()))
+        when(repository.keywordSearch(anyString(), any(), isNull(), anyInt()))
                 .thenReturn(List.of());
         when(embeddingClient.embed(anyString())).thenThrow(new IllegalStateException("provider down"));
         when(repository.contentProjectionSearch("Portfolio Platform", 6))
@@ -72,10 +73,10 @@ class HybridSearchServiceTest {
                 .content("RAG evidence")
                 .build();
 
-        when(repository.keywordSearch(anyString(), any(), anyString(), anyInt()))
+        when(repository.keywordSearch(anyString(), any(), isNull(), anyInt()))
                 .thenReturn(List.of(chunk));
         when(embeddingClient.embed(anyString())).thenReturn(new float[]{0.1f});
-        when(repository.vectorSearch(any(float[].class), any(), anyString(), anyInt()))
+        when(repository.vectorSearch(any(float[].class), any(), isNull(), anyInt()))
                 .thenReturn(List.of());
 
         KnowledgeSearchResponse response = service.search(KnowledgeSearchRequest.builder()
@@ -112,10 +113,10 @@ class HybridSearchServiceTest {
                 .content("Production-minded distributed platform.")
                 .build();
 
-        when(repository.keywordSearch(anyString(), any(), anyString(), anyInt()))
+        when(repository.keywordSearch(anyString(), any(), isNull(), anyInt()))
                 .thenReturn(List.of(legacyChunk));
         when(embeddingClient.embed(anyString())).thenReturn(new float[]{0.1f});
-        when(repository.vectorSearch(any(float[].class), any(), anyString(), anyInt()))
+        when(repository.vectorSearch(any(float[].class), any(), isNull(), anyInt()))
                 .thenReturn(List.of());
         when(repository.contentProjectionSearch("Portfolio Platform", 6))
                 .thenReturn(List.of(projected));

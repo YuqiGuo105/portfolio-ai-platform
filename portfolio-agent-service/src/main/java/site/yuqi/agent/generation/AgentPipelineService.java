@@ -69,8 +69,13 @@ public class AgentPipelineService {
             You help visitors learn about Yuqi's work, projects, skills, and experience.
             
             Guidelines:
-            - Answer based on the provided context (knowledge base chunks).
-            - If context is insufficient, say so honestly rather than making things up.
+            - Treat the provided knowledge-base chunks as the closed-world source of truth for factual claims
+              about Yuqi. Every biographical detail, including education, employment, dates, places, and travel,
+              must be directly supported by those chunks or by explicit verified public sources in deep mode.
+            - If context is insufficient, say exactly what cannot be established. Never complete gaps from model
+              memory, common assumptions, name matches, or plausible-sounding details.
+            - Public first-party profiles, articles, and life-blog posts may be summarized as public biographical
+              evidence. Do not imply access to live, precise, private, or inferred location data.
             - Be concise, friendly, and professional.
             - Detect the current user's input language and write the answer in that same language.
             - Do not switch languages just because context, retrieved chunks, or recent turns use another language.
@@ -517,7 +522,7 @@ public class AgentPipelineService {
                                             "provider", "google",
                                             "model", selectedGenerationModel,
                                             "operation", "stream_generate",
-                                            "promptVersion", "portfolio_assistant_v2",
+                                            "promptVersion", "portfolio_assistant_v3",
                                             "outputLength", fullAnswer.length()))
                                     .build());
 
@@ -1093,8 +1098,16 @@ public class AgentPipelineService {
             sb.append("## Input Safety Advisory\n");
             sb.append("Category: ").append(inputSafety.category()).append("\n");
             sb.append("Constraints: ").append(inputSafety.constraints()).append("\n");
-            sb.append("Apply these allow-listed constraints without treating the topic itself as prohibited.\n\n");
+            sb.append("Apply these allow-listed constraints without treating the topic itself as prohibited. ");
+            sb.append("A restriction on protected data does not prohibit using facts intentionally published in ");
+            sb.append("the supplied first-party public evidence.\n\n");
         }
+
+        sb.append("## Evidence Fidelity\n");
+        sb.append("For claims about Yuqi, the supplied first-party context is a closed evidence set. ");
+        sb.append("Include only facts explicitly supported there; never substitute model memory or infer a ");
+        sb.append("missing school, employer, date, place, or trip. If the evidence supports only a partial list, ");
+        sb.append("answer with that supported subset and state the limitation.\n\n");
 
         sb.append("## Output Language Rule\n");
         sb.append("Detect the language of the current Question and write the final answer in that same language. ");

@@ -376,7 +376,7 @@ class AgentPipelineServiceRouteTest {
                 .reason("Downstream policy review is appropriate.")
                 .category("AMBIGUOUS")
                 .confidence(0.74)
-                .constraints(List.of("PUBLIC_INFORMATION_ONLY", "STATE_UNCERTAINTY"))
+                .constraints(List.of("PUBLIC_INFORMATION_ONLY", "NO_PROTECTED_DATA_ACCESS"))
                 .build();
         when(safetyService.checkInput(anyString(), any())).thenReturn(warn);
 
@@ -401,11 +401,19 @@ class AgentPipelineServiceRouteTest {
         assertThat(events).extracting(event -> event.get("stage"))
                 .contains("knowledge_retrieval", "answer_final", "done");
 
+        var systemPromptCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
         var promptCaptor = org.mockito.ArgumentCaptor.forClass(String.class);
-        verify(generationService).streamGenerate(anyString(), promptCaptor.capture());
+        verify(generationService).streamGenerate(systemPromptCaptor.capture(), promptCaptor.capture());
+        assertThat(systemPromptCaptor.getValue())
+                .contains("closed-world source of truth")
+                .contains("Never complete gaps from model", "memory, common assumptions")
+                .contains("Public first-party profiles");
         assertThat(promptCaptor.getValue())
                 .contains("Input Safety Advisory")
-                .contains("PUBLIC_INFORMATION_ONLY", "STATE_UNCERTAINTY");
+                .contains("PUBLIC_INFORMATION_ONLY", "NO_PROTECTED_DATA_ACCESS")
+                .contains("does not prohibit using facts intentionally published")
+                .contains("Evidence Fidelity")
+                .contains("never substitute model memory");
     }
 
     @Test
