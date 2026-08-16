@@ -30,6 +30,8 @@ import site.yuqi.agent.safety.SafetyCheckResult;
 import site.yuqi.agent.safety.SafetyService;
 import site.yuqi.agent.safety.SafetyVerdict;
 import site.yuqi.agent.safety.OutputSafetyContext;
+import site.yuqi.agent.workflow.AgentRunLifecycle;
+import site.yuqi.agent.workflow.AgentRunState;
 import site.yuqi.ai.contracts.event.EventTypes;
 import site.yuqi.ai.contracts.event.PlatformEvent;
 import site.yuqi.ai.contracts.knowledge.KnowledgeSearchResponse;
@@ -63,6 +65,7 @@ public class AgentPipelineService {
     private final ChatBudgetService chatBudgetService;
     private final WebGuidePlanService webGuidePlanService;
     private final AttachmentContextService attachmentContextService;
+    private final AgentRunLifecycle runLifecycle;
 
     private static final String SYSTEM_PROMPT = """
             You are Yuqi's AI assistant on his portfolio website (yuqi.site).
@@ -114,6 +117,7 @@ public class AgentPipelineService {
 
             UUID runId = UUID.randomUUID();
             long pipelineStart = System.currentTimeMillis();
+            runLifecycle.begin(runId);
 
             try {
                 BudgetDecision budgetDecision = chatBudgetService.reserveChatRequest();
@@ -148,6 +152,7 @@ public class AgentPipelineService {
                                 "runMode", "production",
                                 "dailyBudget", budgetPayload(budgetDecision)))
                         .build());
+                runLifecycle.transition(runId, AgentRunState.ADMITTED);
 
                 boolean hasAttachmentRequest = request.getAttachments() != null
                         && !request.getAttachments().isEmpty();
@@ -178,6 +183,7 @@ public class AgentPipelineService {
                 IntentRequest intentRequest = buildIntentRequest(request, question, sessionId, plannerContext);
 
                 if (request.getPendingActionId() != null && !request.getPendingActionId().isBlank()) {
+                    runLifecycle.transition(runId, AgentRunState.WAITING_CONFIRMATION);
                     SafetyCheckResult inputSafety = checkInputSafety(sink, question, runId);
                     if (inputSafety.verdict() == SafetyVerdict.BLOCK) {
                         handleBlockedInput(sink, request, question, sessionId, runId, pipelineStart, inputSafety);
@@ -246,6 +252,7 @@ public class AgentPipelineService {
                 String routingStageId = stageId(runId, "routing");
                 sink.next(stageStarted("safety_check", "Checking request safety...", safetyStageId));
                 sink.next(stageStarted("routing", "Understanding your request...", routingStageId));
+                runLifecycle.transition(runId, AgentRunState.GUARDING);
 
                 var preflight = Mono.zip(
                                 Mono.fromCallable(() -> timed(() -> safetyService.checkInput(question, runId)))
@@ -261,6 +268,7 @@ public class AgentPipelineService {
                 TimedResult<AgentRouteDecision> routingResult = preflight.getT2();
                 SafetyCheckResult inputSafety = safetyResult.value();
                 AgentRouteDecision routeDecision = routingResult.value();
+                runLifecycle.transition(runId, AgentRunState.PLANNING);
 
                 sink.next(stageCompleted("safety_check", "Request safety checked", safetyStageId,
                         safetyResult.durationMs(), safetyPayload(inputSafety)));
@@ -300,6 +308,7 @@ public class AgentPipelineService {
 
                 switch (routeDecision.route()) {
                     case MCP_TOOL -> {
+                        runLifecycle.transition(runId, AgentRunState.EXECUTING_TOOL);
                         String toolName = routeDecision.intent() != null
                                 ? routeDecision.intent().targetTool()
                                 : "unknown";
@@ -315,6 +324,7 @@ public class AgentPipelineService {
                         return;
                     }
                     case CLARIFY -> {
+                        runLifecycle.transition(runId, AgentRunState.FINALIZING);
                         String candidate = nonBlank(routeDecision.message(), "Could you clarify what you need?");
                         String answer = plannerAlreadyLocalized(routeDecision)
                                 ? candidate
@@ -328,6 +338,7 @@ public class AgentPipelineService {
                         return;
                     }
                     case HANDOFF -> {
+                        runLifecycle.transition(runId, AgentRunState.HANDOFF);
                         String answer = requestHandoffConfirmation(sink, question, routeDecision);
                         recordAnswerEvent(request, runId, pipelineStart, answer, "answered", "HANDOFF");
                         memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "HANDOFF", (Map<String, Object>) null);
@@ -337,6 +348,7 @@ public class AgentPipelineService {
                         return;
                     }
                     case WEB_GUIDE -> {
+                        runLifecycle.transition(runId, AgentRunState.FINALIZING);
                         WebGuidePlanService.WebGuidePlan guidePlan = webGuidePlanService.build(routeDecision.intent());
                         Map<String, Object> guidePayload = guidePlan.toPayload();
                         String answer = guidePlan.responseMessage();
@@ -367,6 +379,7 @@ public class AgentPipelineService {
                         }
                         String answer = alignAnswer(question, nonBlank(routeDecision.message(),
                                 "I can help with Yuqi's portfolio, site analytics, content operations, and support workflows."));
+                        runLifecycle.transition(runId, AgentRunState.FINALIZING);
                         recordAnswerEvent(request, runId, pipelineStart, answer, "answered", "GENERAL_CHAT");
                         emitRunCompleted(runId, pipelineStart, "general_chat");
                         memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "GENERAL_CHAT", (Map<String, Object>) null);
@@ -376,6 +389,7 @@ public class AgentPipelineService {
                         return;
                     }
                     case KNOWLEDGE_QA -> {
+                        runLifecycle.transition(runId, AgentRunState.RETRIEVING);
                         // Continue into the retrieval + grounded generation path below.
                     }
                 }
@@ -704,6 +718,7 @@ public class AgentPipelineService {
 
     private void emitRunCompleted(UUID runId, long pipelineStart, String finalStatus) {
         try {
+            runLifecycle.complete(runId, finalStatus);
             eventRecorder.record(PlatformEvent.now(EventTypes.AGENT_RUN_COMPLETED)
                     .runId(runId)
                     .service("agent-runtime-service")

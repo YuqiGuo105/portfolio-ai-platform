@@ -25,6 +25,7 @@ import site.yuqi.agent.safety.SafetyCheckResult;
 import site.yuqi.agent.safety.SafetyService;
 import site.yuqi.agent.safety.SafetyVerdict;
 import site.yuqi.agent.safety.OutputSafetyContext;
+import site.yuqi.agent.workflow.AgentRunLifecycle;
 import site.yuqi.ai.contracts.event.PlatformEvent;
 import site.yuqi.ai.contracts.knowledge.KnowledgeSearchResponse;
 
@@ -87,7 +88,8 @@ class AgentPipelineServiceRouteTest {
                 memoryWriter,
                 chatBudgetService,
                 new WebGuidePlanService(),
-                attachmentContextService);
+                attachmentContextService,
+                mock(AgentRunLifecycle.class));
 
         SafetyCheckResult pass = SafetyCheckResult.builder()
                 .verdict(SafetyVerdict.PASS)
