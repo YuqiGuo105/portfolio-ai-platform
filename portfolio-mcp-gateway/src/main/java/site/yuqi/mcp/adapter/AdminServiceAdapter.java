@@ -22,6 +22,9 @@ public class AdminServiceAdapter extends AbstractHttpAdapter {
     @Value("${domain.admin.timeout-ms:15000}")
     private int timeoutMs;
 
+    @Value("${domain.admin.admin-secret:}")
+    private String adminSecret;
+
     public AdminServiceAdapter(WebClient.Builder webClientBuilder) {
         super(webClientBuilder);
     }
@@ -43,7 +46,9 @@ public class AdminServiceAdapter extends AbstractHttpAdapter {
 
     @Override
     protected void decorate(WebClient.RequestHeadersSpec<?> spec, Map<String, Object> args) {
-        // admin-service uses Supabase-JWT bearer auth at /api/admin/**.
-        // The caller's bearer is propagated by ToolController via header — see there.
+        if (adminSecret == null || adminSecret.isBlank()) {
+            throw new AdapterException("Admin service credential is not configured.");
+        }
+        spec.header("X-Admin-Secret", adminSecret);
     }
 }

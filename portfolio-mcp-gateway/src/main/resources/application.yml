@@ -44,6 +44,7 @@ domain:
     timeout-ms: ${PORTFOLIO_TIMEOUT_MS:15000}
   admin:
     base-url: ${ADMIN_SERVICE_BASE_URL:http://localhost:8081}
+    admin-secret: ${ADMIN_SECRET:}
     timeout-ms: ${ADMIN_TIMEOUT_MS:15000}
   notification:
     base-url: ${NOTIFICATION_SERVICE_BASE_URL:http://localhost:8082}
