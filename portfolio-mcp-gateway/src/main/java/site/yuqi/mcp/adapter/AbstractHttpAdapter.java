@@ -51,6 +51,11 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
         // default: no-op
     }
 
+    /** Subclasses may translate catalog argument names into downstream API names. */
+    protected void prepareArgs(ToolDefinition tool, Map<String, Object> args) {
+        // default: no-op
+    }
+
     @Override
     @SuppressWarnings("unchecked")
     public Map<String, Object> invoke(ToolDefinition tool, Map<String, Object> args)
@@ -61,6 +66,7 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
         Map<String, Object> mutable = new HashMap<>(args);
         // Strip gateway-internal control flags so they aren't forwarded.
         mutable.keySet().removeIf(k -> k != null && k.startsWith("_"));
+        prepareArgs(tool, mutable);
 
         String path = substitutePathVars(tool.getEndpoint().getPath(), mutable);
         HttpMethod method = HttpMethod.valueOf(tool.getEndpoint().getMethod().toUpperCase());

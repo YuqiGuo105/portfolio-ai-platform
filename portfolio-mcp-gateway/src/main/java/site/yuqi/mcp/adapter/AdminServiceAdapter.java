@@ -3,6 +3,7 @@ package site.yuqi.mcp.adapter;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Component;
 import org.springframework.web.reactive.function.client.WebClient;
+import site.yuqi.mcp.model.ToolDefinition;
 
 import java.time.Duration;
 import java.util.Map;
@@ -42,6 +43,13 @@ public class AdminServiceAdapter extends AbstractHttpAdapter {
     @Override
     protected Duration timeout() {
         return Duration.ofMillis(timeoutMs);
+    }
+
+    @Override
+    protected void prepareArgs(ToolDefinition tool, Map<String, Object> args) {
+        if ("admin.search_content".equals(tool.getName()) && args.containsKey("sourceType")) {
+            args.put("type", args.remove("sourceType"));
+        }
     }
 
     @Override

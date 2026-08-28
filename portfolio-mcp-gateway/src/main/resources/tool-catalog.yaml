@@ -54,7 +54,7 @@ tools:
     confirmRequired: false
     parameters:
       - { name: sourceType, type: string,  required: true,  description: "BLOG | PROJECT | LIFE | EXPERIENCE." }
-      - { name: sourceId,   type: integer, required: true,  description: "Content id." }
+      - { name: sourceId,   type: string,  required: true,  description: "Content UUID or legacy numeric id." }
     endpoint:
       target: admin
       method: GET
