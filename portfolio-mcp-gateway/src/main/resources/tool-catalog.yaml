@@ -162,10 +162,16 @@ tools:
       - { name: body,       type: string, required: false }
       - { name: category,   type: string, required: false }
       - { name: tags,       type: array,  required: false }
+      - { name: imageUrl,   type: string, required: false, description: "Public cover asset URL." }
+      - { name: externalUrl,type: string, required: false, description: "Optional external evidence URL." }
+      - { name: year,       type: string, required: false }
+      - { name: num,        type: integer,required: false, description: "Display priority; higher values appear first." }
+      - { name: featured,   type: boolean,required: false }
+      - { name: coverVariant, type: string, required: false }
     endpoint:
       target: admin
       method: POST
-      path: /api/admin/content/{sourceType}/drafts
+      path: /api/admin/content/{sourceType}
 
   - name: admin.update_content
     mode: WRITE
@@ -176,16 +182,22 @@ tools:
     confirmRequired: true
     parameters:
       - { name: sourceType, type: string,  required: true }
-      - { name: sourceId,   type: integer, required: true }
+      - { name: sourceId,   type: string,  required: true, description: "Content UUID or legacy numeric id." }
       - { name: title,      type: string,  required: false }
       - { name: summary,    type: string,  required: false }
       - { name: body,       type: string,  required: false }
       - { name: category,   type: string,  required: false }
       - { name: tags,       type: array,   required: false }
+      - { name: imageUrl,   type: string,  required: false }
+      - { name: externalUrl,type: string,  required: false }
+      - { name: year,       type: string,  required: false }
+      - { name: num,        type: integer, required: false }
+      - { name: featured,   type: boolean, required: false }
+      - { name: coverVariant, type: string, required: false }
       - { name: changeNote, type: string,  required: false }
     endpoint:
       target: admin
-      method: PATCH
+      method: PUT
       path: /api/admin/content/{sourceType}/{sourceId}
 
   - name: admin.publish_content
@@ -201,7 +213,7 @@ tools:
       construct Kafka envelopes itself.
     parameters:
       - { name: sourceType, type: string,  required: true }
-      - { name: sourceId,   type: integer, required: true }
+      - { name: sourceId,   type: string,  required: true, description: "Content UUID or legacy numeric id." }
       - { name: changeNote, type: string,  required: false }
     endpoint:
       target: admin
@@ -217,7 +229,7 @@ tools:
     confirmRequired: true
     parameters:
       - { name: sourceType, type: string,  required: true }
-      - { name: sourceId,   type: integer, required: true }
+      - { name: sourceId,   type: string,  required: true, description: "Content UUID or legacy numeric id." }
       - { name: dryRun,     type: boolean, required: false }
     endpoint:
       target: admin
@@ -233,7 +245,7 @@ tools:
     confirmRequired: true
     parameters:
       - { name: sourceType, type: string,  required: true }
-      - { name: sourceId,   type: integer, required: true }
+      - { name: sourceId,   type: string,  required: true, description: "Content UUID or legacy numeric id." }
       - { name: dryRun,     type: boolean, required: false }
     endpoint:
       target: admin
