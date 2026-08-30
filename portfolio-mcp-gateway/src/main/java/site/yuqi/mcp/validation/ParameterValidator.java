@@ -34,6 +34,15 @@ public class ParameterValidator {
                 if (v != null && !matchesType(v, p.getType())) {
                     errors.add("Parameter " + p.getName() + " has wrong type "
                             + "(expected " + p.getType() + ", got " + v.getClass().getSimpleName() + ").");
+                    continue;
+                }
+                if (v instanceof String value) {
+                    if (p.getMinLength() != null && value.length() < p.getMinLength()) {
+                        errors.add("Parameter " + p.getName() + " is shorter than " + p.getMinLength() + " characters.");
+                    }
+                    if (p.getMaxLength() != null && value.length() > p.getMaxLength()) {
+                        errors.add("Parameter " + p.getName() + " exceeds " + p.getMaxLength() + " characters.");
+                    }
                 }
             }
         }

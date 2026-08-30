@@ -140,4 +140,23 @@ class AdminServiceAdapterTest {
         assertEquals("MCP edit", args.get("changeNote"));
         assertEquals("Updated summary", ((Map<String, Object>) args.get("data")).get("summary"));
     }
+
+    @Test
+    void normalizesCoverUploadSourceTypeWithoutChangingPayload() {
+        AdminServiceAdapter adapter = new AdminServiceAdapter(WebClient.builder());
+        ToolDefinition tool = new ToolDefinition();
+        tool.setName("admin.upload_content_cover");
+        Map<String, Object> args = new HashMap<>();
+        args.put("sourceType", "LIFE");
+        args.put("sourceId", "life-1");
+        args.put("imageBase64", "iVBORw0KGgo=");
+        args.put("mimeType", "image/png");
+
+        adapter.prepareArgs(tool, args);
+
+        assertEquals("LIFE_BLOG", args.get("sourceType"));
+        assertEquals("life-1", args.get("sourceId"));
+        assertEquals("iVBORw0KGgo=", args.get("imageBase64"));
+        assertEquals("image/png", args.get("mimeType"));
+    }
 }

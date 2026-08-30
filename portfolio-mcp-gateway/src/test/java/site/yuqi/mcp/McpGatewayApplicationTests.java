@@ -56,4 +56,17 @@ class McpGatewayApplicationTests {
         assertThat(delivery.getEndpoint().getPath())
                 .isEqualTo("/api/admin/notifications/publication-delivery");
     }
+
+    @Test
+    void coverUploadToolIsConfirmedEditorWriteWithBoundedPayload() {
+        var tool = toolRegistry.find("admin.upload_content_cover").orElseThrow();
+
+        assertThat(tool.isConfirmRequired()).isTrue();
+        assertThat(tool.getRequiredRole()).isEqualTo("EDITOR");
+        assertThat(tool.getEndpoint().getTarget()).isEqualTo("admin");
+        assertThat(tool.getEndpoint().getPath())
+                .isEqualTo("/api/admin/content/{sourceType}/{sourceId}/cover");
+        assertThat(tool.getParameters()).filteredOn(parameter -> "imageBase64".equals(parameter.getName()))
+                .singleElement().extracting("maxLength").isEqualTo(7_100_000);
+    }
 }

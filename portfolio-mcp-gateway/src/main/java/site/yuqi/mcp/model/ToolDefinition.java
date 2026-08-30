@@ -42,6 +42,8 @@ public class ToolDefinition {
         private String type;
         private boolean required;
         private String description;
+        private Integer minLength;
+        private Integer maxLength;
     }
 
     @Data

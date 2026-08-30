@@ -111,6 +111,38 @@ tools:
       method: GET
       path: /api/admin/operations/timeline
 
+  - name: admin.list_failed_operations
+    mode: READ
+    description: List failed async workflow steps across indexing jobs and outbox event publication.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: kind,  type: string,  required: false, description: "INDEXING_JOB | OUTBOX_EVENT." }
+      - { name: limit, type: integer, required: false, description: "Default 50, max 100." }
+    endpoint:
+      target: admin
+      method: GET
+      path: /api/admin/recovery/failures
+
+  - name: admin.list_admin_users
+    mode: READ
+    description: List admin users and role/status assignments.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: status, type: string,  required: false, description: "ACTIVE | SUSPENDED." }
+      - { name: role,   type: string,  required: false, description: "VIEWER | EDITOR | PUBLISHER | ADMIN." }
+      - { name: limit,  type: integer, required: false }
+      - { name: offset, type: integer, required: false }
+    endpoint:
+      target: admin
+      method: GET
+      path: /api/admin/users
+
   # ── Analytics: privacy-safe aggregate reads ────────────────────────────
   - name: analytics.get_visitor_summary
     mode: READ
@@ -220,6 +252,31 @@ tools:
       method: PUT
       path: /api/admin/content/{sourceType}/{sourceId}
 
+  - name: admin.upload_content_cover
+    mode: WRITE
+    description: Upload a validated PNG, JPEG, or WebP cover to managed storage and attach it to existing content.
+    requiredRole: EDITOR
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: true
+    note: |
+      Provide exactly one of sourceUrl or imageBase64. sourceUrl is accepted only
+      from the admin-service configured HTTPS host allowlist. imageBase64 is bounded
+      to 5 MB after decoding. The admin service validates file signatures, writes an
+      immutable hash-addressed object to Supabase Storage, and then updates content.
+    parameters:
+      - { name: sourceType,  type: string, required: true,  minLength: 3, maxLength: 32, description: "BLOG | PROJECT | LIFE | EXPERIENCE." }
+      - { name: sourceId,    type: string, required: true,  minLength: 1, maxLength: 128, description: "Content UUID or legacy numeric id." }
+      - { name: sourceUrl,   type: string, required: false, maxLength: 2048, description: "Allow-listed public HTTPS image URL; mutually exclusive with imageBase64." }
+      - { name: imageBase64, type: string, required: false, maxLength: 7100000, description: "Raw base64 or data:image/...;base64 payload; mutually exclusive with sourceUrl." }
+      - { name: fileName,    type: string, required: false, maxLength: 255, description: "Original filename for audit context." }
+      - { name: mimeType,    type: string, required: false, maxLength: 100, description: "Optional claimed MIME; verified against file signature." }
+      - { name: changeNote,  type: string, required: false, maxLength: 500 }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/content/{sourceType}/{sourceId}/cover
+
   - name: admin.publish_content
     mode: WRITE
     description: Publish a content item and start asynchronous Search, RAG, and notification workflows. A successful response confirms publication acceptance, not downstream email delivery; verify it with notification.get_publication_delivery and admin.get_operation_timeline.
@@ -288,6 +345,82 @@ tools:
       target: admin
       method: POST
       path: /api/admin/indexing-jobs/{jobId}/retry
+
+  - name: admin.retry_failed_operation
+    mode: WRITE
+    description: Retry one failed async workflow step by kind and id.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: kind, type: string, required: true, description: "INDEXING_JOB | OUTBOX_EVENT." }
+      - { name: id,   type: string, required: true, description: "Failed operation id." }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/recovery/failures/{kind}/{id}/retry
+
+  - name: admin.replay_outbox_event
+    mode: WRITE
+    description: Replay a sent, failed, or dead-lettered outbox event. Downstream consumers deduplicate by idempotency key.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: eventId, type: string, required: true, description: "Outbox event id." }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/outbox-events/{eventId}/replay
+
+  - name: admin.drain_recovery_workers
+    mode: WRITE
+    description: Drain ready indexing and outbox workers once, useful after cold start or broker recovery.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: true
+    parameters: []
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/recovery/drain
+
+  - name: admin.upsert_admin_user
+    mode: WRITE
+    description: Create or update an admin user's role/status assignment.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: email,       type: string, required: true }
+      - { name: role,        type: string, required: true, description: "VIEWER | EDITOR | PUBLISHER | ADMIN." }
+      - { name: status,      type: string, required: false, description: "ACTIVE | SUSPENDED." }
+      - { name: displayName, type: string, required: false }
+      - { name: note,        type: string, required: false }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/users
+
+  - name: admin.update_admin_user_status
+    mode: WRITE
+    description: Activate or suspend an admin user without deleting the record.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: userId, type: string, required: true }
+      - { name: status, type: string, required: true, description: "ACTIVE | SUSPENDED." }
+      - { name: note,   type: string, required: false }
+    endpoint:
+      target: admin
+      method: PATCH
+      path: /api/admin/users/{userId}/status
 
   # ── Notification: read ──────────────────────────────────────────────────
   - name: notification.get_delivery_stats
