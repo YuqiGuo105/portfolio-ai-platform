@@ -89,7 +89,7 @@ tools:
     endpoint:
       target: admin
       method: GET
-      path: /api/admin/outbox
+      path: /api/admin/outbox-events
 
   # ── Analytics: privacy-safe aggregate reads ────────────────────────────
   - name: analytics.get_visitor_summary

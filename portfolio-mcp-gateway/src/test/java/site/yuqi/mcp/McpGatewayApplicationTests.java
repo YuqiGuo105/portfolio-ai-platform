@@ -37,4 +37,13 @@ class McpGatewayApplicationTests {
         assertThat(tool.getEndpoint().getTarget()).isEqualTo("portfolio");
         assertThat(tool.getEndpoint().getPath()).isEqualTo("/api/contact");
     }
+
+    @Test
+    void outboxToolMatchesAdminServiceContract() {
+        var tool = toolRegistry.find("admin.list_outbox_events").orElseThrow();
+
+        assertThat(tool.getEndpoint().getTarget()).isEqualTo("admin");
+        assertThat(tool.getEndpoint().getMethod()).isEqualTo("GET");
+        assertThat(tool.getEndpoint().getPath()).isEqualTo("/api/admin/outbox-events");
+    }
 }
