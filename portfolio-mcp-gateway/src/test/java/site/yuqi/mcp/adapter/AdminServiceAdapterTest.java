@@ -58,6 +58,43 @@ class AdminServiceAdapterTest {
     }
 
     @Test
+    void mapsTimelineQueryToAdminApiParameter() {
+        AdminServiceAdapter adapter = new AdminServiceAdapter(WebClient.builder());
+        ToolDefinition tool = new ToolDefinition();
+        tool.setName("admin.get_operation_timeline");
+        Map<String, Object> args = new HashMap<>(Map.of(
+                "query", "content-123",
+                "limit", 100));
+
+        adapter.prepareArgs(tool, args);
+
+        assertEquals("content-123", args.get("q"));
+        assertEquals(100, args.get("limit"));
+        assertFalse(args.containsKey("query"));
+    }
+
+    @Test
+    @SuppressWarnings("unchecked")
+    void enrichesPublishResultWithAsynchronousVerificationInstructions() {
+        AdminServiceAdapter adapter = new AdminServiceAdapter(WebClient.builder());
+        ToolDefinition tool = new ToolDefinition();
+        tool.setName("admin.publish_content");
+
+        Map<String, Object> result = adapter.enrichPublishResult(
+                tool,
+                Map.of("sourceId", "content-123"),
+                Map.of("eventId", "event-456", "status", "PUBLISHED"));
+
+        Map<String, Object> verification = (Map<String, Object>) result.get("verification");
+        assertEquals("PENDING_VERIFICATION", verification.get("status"));
+        assertEquals("event-456", verification.get("identifier"));
+        assertEquals("/admin/operations", verification.get("operationsTimelinePath"));
+        assertEquals(
+                List.of("notification.get_publication_delivery", "admin.get_operation_timeline"),
+                verification.get("tools"));
+    }
+
+    @Test
     @SuppressWarnings("unchecked")
     void wrapsCreateDraftInAdminMutationEnvelope() {
         AdminServiceAdapter adapter = new AdminServiceAdapter(WebClient.builder());

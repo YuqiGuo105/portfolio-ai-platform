@@ -7,6 +7,8 @@ import site.yuqi.mcp.model.ToolDefinition;
 
 import java.time.Duration;
 import java.util.HashMap;
+import java.util.LinkedHashMap;
+import java.util.List;
 import java.util.Map;
 
 /**
@@ -47,7 +49,54 @@ public class AdminServiceAdapter extends AbstractHttpAdapter {
     }
 
     @Override
+    public Map<String, Object> invoke(ToolDefinition tool, Map<String, Object> args)
+            throws AdapterException {
+        Map<String, Object> result = super.invoke(tool, args);
+        return enrichPublishResult(tool, args, result);
+    }
+
+    Map<String, Object> enrichPublishResult(
+            ToolDefinition tool,
+            Map<String, Object> args,
+            Map<String, Object> result) {
+        if (!"admin.publish_content".equals(tool.getName())) return result;
+
+        Object identifier = firstPresent(
+                result.get("eventId"),
+                result.get("correlationId"),
+                result.get("traceId"),
+                result.get("idempotencyKey"),
+                args.get("sourceId"));
+
+        Map<String, Object> verification = new LinkedHashMap<>();
+        verification.put("status", "PENDING_VERIFICATION");
+        verification.put("identifier", identifier == null ? "" : String.valueOf(identifier));
+        verification.put("tools", List.of(
+                "notification.get_publication_delivery",
+                "admin.get_operation_timeline"));
+        verification.put("operationsTimelinePath", "/admin/operations");
+        verification.put(
+                "message",
+                "Publication was accepted. Verify asynchronous Search, RAG, and email delivery before reporting end-to-end success.");
+
+        Map<String, Object> enriched = new LinkedHashMap<>(result);
+        enriched.put("verification", verification);
+        return enriched;
+    }
+
+    private static Object firstPresent(Object... candidates) {
+        for (Object candidate : candidates) {
+            if (candidate != null && !String.valueOf(candidate).isBlank()) return candidate;
+        }
+        return null;
+    }
+
+    @Override
     protected void prepareArgs(ToolDefinition tool, Map<String, Object> args) {
+        if ("admin.get_operation_timeline".equals(tool.getName()) && args.containsKey("query")) {
+            args.put("q", args.remove("query"));
+            return;
+        }
         if ("admin.search_content".equals(tool.getName()) && args.containsKey("sourceType")) {
             args.put("type", normalizeSourceType(args.remove("sourceType")));
             return;

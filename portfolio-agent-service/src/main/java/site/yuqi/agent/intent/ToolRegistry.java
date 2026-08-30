@@ -65,6 +65,16 @@ public class ToolRegistry {
                 Set.of(),
                 Set.of("status", "limit")
         ));
+        register(new ToolDefinition(
+                "admin.get_operation_timeline",
+                IntentType.ADMIN_GET_OPERATION_TIMELINE,
+                "Trace a publication or operation across services by run, event, content, session, "
+                        + "correlation, trace, or idempotency identifier.",
+                RiskLevel.READ_ONLY,
+                false,
+                Set.of("query"),
+                Set.of("limit")
+        ));
 
         // ── Analytics: privacy-safe aggregate reads ────────────────────
         register(new ToolDefinition(
@@ -168,7 +178,10 @@ public class ToolRegistry {
                 "admin.publish_content",
                 IntentType.ADMIN_PUBLISH_CONTENT,
                 "Publish a content item and trigger content versioning, outbox event, "
-                        + "RAG indexing, OpenSearch indexing, and notification pipeline.",
+                        + "RAG indexing, OpenSearch indexing, and notification pipeline. "
+                        + "Publication acceptance is not delivery completion; verify the returned "
+                        + "identifier with notification.get_publication_delivery and "
+                        + "admin.get_operation_timeline.",
                 RiskLevel.RISKY_WRITE,
                 true,
                 Set.of("sourceType", "sourceId"),
@@ -211,6 +224,16 @@ public class ToolRegistry {
                 false,
                 Set.of(),
                 Set.of("window", "channel")
+        ));
+        register(new ToolDefinition(
+                "notification.get_publication_delivery",
+                IntentType.NOTIFICATION_GET_PUBLICATION_DELIVERY,
+                "Verify email delivery for one publication using its source, event, correlation, "
+                        + "trace, or idempotency identifier without exposing subscriber identity.",
+                RiskLevel.READ_ONLY,
+                false,
+                Set.of("identifier"),
+                Set.of()
         ));
         register(new ToolDefinition(
                 "notification.list_subscribers",

@@ -33,6 +33,7 @@ public class PolicyGuard {
             Map.entry("admin.get_content",                 Role.VIEWER),
             Map.entry("admin.list_indexing_jobs",          Role.VIEWER),
             Map.entry("admin.list_outbox_events",          Role.VIEWER),
+            Map.entry("admin.get_operation_timeline",      Role.VIEWER),
             Map.entry("admin.create_content_draft",        Role.EDITOR),
             Map.entry("admin.update_content",              Role.EDITOR),
             Map.entry("admin.publish_content",             Role.PUBLISHER),
@@ -52,6 +53,7 @@ public class PolicyGuard {
             Map.entry("contact.email_owner",               Role.VIEWER),
 
             Map.entry("notification.get_delivery_stats",   Role.VIEWER),
+            Map.entry("notification.get_publication_delivery", Role.VIEWER),
             Map.entry("notification.list_notifications",   Role.VIEWER),
             Map.entry("notification.list_failed_deliveries", Role.VIEWER),
             Map.entry("notification.list_subscribers",     Role.ADMIN),

@@ -91,6 +91,26 @@ tools:
       method: GET
       path: /api/admin/outbox-events
 
+  - name: admin.get_operation_timeline
+    mode: READ
+    description: Trace one publication or platform operation across services using a run, event, content, session, correlation, trace, or idempotency identifier.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    note: |
+      This is the Operations Timeline / OpenSearch verification tool. Use the
+      sourceId, eventId, correlationId, traceId, or idempotencyKey returned by
+      a write tool. Results are eventually consistent while Kafka consumers
+      and OpenSearch projections are still processing.
+    parameters:
+      - { name: query, type: string, required: true, description: "runId, eventId, contentId, sessionId, correlationId, traceId, or idempotencyKey." }
+      - { name: limit, type: integer, required: false, description: "Maximum timeline events; defaults to 250." }
+    endpoint:
+      target: admin
+      method: GET
+      path: /api/admin/operations/timeline
+
   # ── Analytics: privacy-safe aggregate reads ────────────────────────────
   - name: analytics.get_visitor_summary
     mode: READ
@@ -202,7 +222,7 @@ tools:
 
   - name: admin.publish_content
     mode: WRITE
-    description: Publish a content item. admin-service emits content.published.
+    description: Publish a content item and start asynchronous Search, RAG, and notification workflows. A successful response confirms publication acceptance, not downstream email delivery; verify it with notification.get_publication_delivery and admin.get_operation_timeline.
     requiredRole: PUBLISHER
     riskLevel: HIGH
     dryRunSupported: false
@@ -210,7 +230,10 @@ tools:
     note: |
       The gateway forwards sourceType + sourceId only. portfolio-admin-service
       assembles the Kafka payload (content.published). The gateway MUST NOT
-      construct Kafka envelopes itself.
+      construct Kafka envelopes itself. After publishing, use sourceId or the
+      returned eventId, correlationId, traceId, or idempotencyKey with
+      notification.get_publication_delivery and admin.get_operation_timeline.
+      Do not claim end-to-end success solely from this write response.
     parameters:
       - { name: sourceType, type: string,  required: true }
       - { name: sourceId,   type: string,  required: true, description: "Content UUID or legacy numeric id." }
@@ -281,6 +304,24 @@ tools:
       target: notification
       method: GET
       path: /api/admin/notifications/stats
+
+  - name: notification.get_publication_delivery
+    mode: READ
+    description: Verify the email delivery outcome for one published content event without exposing subscriber identity.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    note: |
+      Pass sourceId, eventId, idempotencyKey, correlationId, or traceId from
+      admin.publish_content. NOT_OBSERVED and PROCESSING are non-terminal and
+      may be queried again because publication delivery is asynchronous.
+    parameters:
+      - { name: identifier, type: string, required: true, description: "sourceId, eventId, idempotencyKey, correlationId, or traceId." }
+    endpoint:
+      target: notification
+      method: GET
+      path: /api/admin/notifications/publication-delivery
 
   - name: notification.list_subscribers
     mode: READ

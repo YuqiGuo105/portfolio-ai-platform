@@ -46,4 +46,14 @@ class McpGatewayApplicationTests {
         assertThat(tool.getEndpoint().getMethod()).isEqualTo("GET");
         assertThat(tool.getEndpoint().getPath()).isEqualTo("/api/admin/outbox-events");
     }
+
+    @Test
+    void publicationVerificationToolsMatchDownstreamContracts() {
+        var timeline = toolRegistry.find("admin.get_operation_timeline").orElseThrow();
+        var delivery = toolRegistry.find("notification.get_publication_delivery").orElseThrow();
+
+        assertThat(timeline.getEndpoint().getPath()).isEqualTo("/api/admin/operations/timeline");
+        assertThat(delivery.getEndpoint().getPath())
+                .isEqualTo("/api/admin/notifications/publication-delivery");
+    }
 }
