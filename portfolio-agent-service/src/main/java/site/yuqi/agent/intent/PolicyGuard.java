@@ -47,6 +47,7 @@ public class PolicyGuard {
 
             Map.entry("alerts.list_rules",                 Role.ADMIN),
             Map.entry("alerts.get_rule",                   Role.ADMIN),
+            Map.entry("alerts.list_incidents",             Role.ADMIN),
             Map.entry("alerts.prepare_change",             Role.ADMIN),
             Map.entry("alerts.apply_change",               Role.ADMIN),
 

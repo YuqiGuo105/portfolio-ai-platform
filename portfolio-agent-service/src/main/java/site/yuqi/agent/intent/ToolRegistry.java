@@ -125,6 +125,15 @@ public class ToolRegistry {
                 Set.of()
         ));
         register(new ToolDefinition(
+                "alerts.list_incidents",
+                IntentType.ALERTS_LIST_INCIDENTS,
+                "List recent visitor alert incidents and notification delivery state.",
+                RiskLevel.READ_ONLY,
+                false,
+                Set.of(),
+                Set.of("hours", "siteId", "ruleId", "notified", "limit")
+        ));
+        register(new ToolDefinition(
                 "alerts.prepare_change",
                 IntentType.ALERTS_PREPARE_CHANGE,
                 "Validate a CREATE, UPDATE, or SET_ENABLED alert policy change and return its diff without applying it.",

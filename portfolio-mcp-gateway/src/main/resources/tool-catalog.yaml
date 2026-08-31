@@ -651,6 +651,27 @@ tools:
       method: GET
       path: /api/alert-rules/{ruleId}
 
+  - name: alerts.list_incidents
+    mode: READ
+    description: >
+      List recent visitor alert incidents and delivery state. Supports bounded filters
+      by site, rule, notification state, and lookback window so an administrator can
+      verify whether a rule fired and whether its notification was delivered.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: hours,    type: integer, required: false, description: "Lookback in hours; the service clamps this to 1..2160." }
+      - { name: siteId,   type: string,  required: false, description: "Optional site identifier." }
+      - { name: ruleId,   type: integer, required: false, description: "Optional alert rule ID." }
+      - { name: notified, type: boolean, required: false, description: "Filter by notification delivery state." }
+      - { name: limit,    type: integer, required: false, description: "Maximum incidents; the service clamps this to 1..200." }
+    endpoint:
+      target: alerts
+      method: GET
+      path: /api/incidents
+
   # ── Alerts: write (prepare/apply two-phase) ────────────────────────────
   - name: alerts.prepare_change
     mode: READ
