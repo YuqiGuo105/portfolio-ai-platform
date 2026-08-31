@@ -349,6 +349,89 @@ tools:
       method: DELETE
       path: /internal/v1/private-answers/{key}
 
+  - name: career.list_resume_assets
+    mode: READ
+    description: List metadata for owner-only PDF resume versions stored in the private Resume Asset Vault.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters: []
+    endpoint:
+      target: career
+      method: GET
+      path: /internal/v1/resume-assets
+
+  - name: career.get_active_resume_asset
+    mode: READ
+    description: Get metadata and integrity information for the active application resume without returning file content.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: false
+    parameters: []
+    endpoint:
+      target: career
+      method: GET
+      path: /internal/v1/resume-assets/active
+
+  - name: career.prepare_resume_upload
+    mode: WRITE
+    description: Prepare a private, time-limited Supabase Storage upload for a new PDF resume version.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: fileName, type: string, required: true, maxLength: 255 }
+      - { name: mimeType, type: string, required: true, maxLength: 120 }
+    endpoint:
+      target: career
+      method: POST
+      path: /internal/v1/resume-assets/uploads
+
+  - name: career.complete_resume_upload
+    mode: WRITE
+    description: Validate an uploaded PDF by magic bytes, size and SHA-256, then atomically make it the active application resume.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true, maxLength: 64 }
+      - { name: sha256, type: string, required: false, minLength: 64, maxLength: 64 }
+    endpoint:
+      target: career
+      method: POST
+      path: /internal/v1/resume-assets/{id}/complete
+
+  - name: career.activate_resume_asset
+    mode: WRITE
+    description: Roll back the application resume pointer to a previously validated PDF version.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true, maxLength: 64 }
+    endpoint:
+      target: career
+      method: POST
+      path: /internal/v1/resume-assets/{id}/activate
+
+  - name: career.get_active_resume_download
+    mode: READ
+    description: Issue a short-lived signed download ticket for the active PDF after explicit owner approval.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters: []
+    endpoint:
+      target: career
+      method: GET
+      path: /internal/v1/resume-assets/active/download
+
   # ── Owner-only public Resume Domain ────────────────────────────────────
   - name: resume.get_current
     mode: READ
