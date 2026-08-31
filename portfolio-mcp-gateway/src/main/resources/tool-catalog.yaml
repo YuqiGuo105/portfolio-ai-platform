@@ -27,6 +27,62 @@
 
 tools:
 
+  # ── Career application copilot (owner-only admin MCP) ─────────────────
+  - name: career.get_candidate_profile
+    mode: READ
+    description: Get the current candidate profile snapshot assembled from first-party portfolio content through the MCP cluster.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters: []
+    endpoint:
+      target: career
+      method: GET
+      path: /internal/v1/candidate-profile
+
+  - name: career.refresh_candidate_profile
+    mode: WRITE
+    description: Refresh the Valkey candidate profile snapshot from current portfolio experience and project content.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters: []
+    endpoint:
+      target: career
+      method: POST
+      path: /internal/v1/candidate-profile/refresh
+
+  - name: career.resolve_application_fields
+    mode: READ
+    description: Resolve job application fields from the cached MCP profile and private application memory; sensitive answers are returned for review, never guessed.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: applicationId, type: string, required: true }
+      - { name: fields, type: array, required: true, description: "Detected form fields with id, label, type, and optional choices." }
+    endpoint:
+      target: career
+      method: POST
+      path: /internal/v1/application-fields/resolve
+
+  - name: career.update_private_answers
+    mode: WRITE
+    description: Update encrypted owner-only answers used for recurring job application questions.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: answers, type: object, required: true, description: "Normalized question-to-answer updates; null removes an answer." }
+    endpoint:
+      target: career
+      method: PUT
+      path: /internal/v1/candidate-profile/private-answers
+
   # ── Admin: read ─────────────────────────────────────────────────────────
   - name: admin.search_content
     mode: READ

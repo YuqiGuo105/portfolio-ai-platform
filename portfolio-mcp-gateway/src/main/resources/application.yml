@@ -58,6 +58,10 @@ domain:
     base-url: ${ALERTS_SERVICE_BASE_URL:https://portfolio-analytics-alerts-702193211434.us-central1.run.app}
     internal-token: ${ALERTS_INTERNAL_TOKEN:}
     timeout-ms: ${ALERTS_TIMEOUT_MS:15000}
+  career:
+    base-url: ${CAREER_SERVICE_BASE_URL:http://localhost:8096}
+    internal-token: ${CAREER_INTERNAL_TOKEN:}
+    timeout-ms: ${CAREER_TIMEOUT_MS:15000}
 
 security:
   supabase-jwt-secret: ${SUPABASE_JWT_SECRET:}
