@@ -12,6 +12,9 @@ import java.io.IOException;
 public class CloudRunIdentityTokenProvider {
 
     public String tokenFor(String audience) {
+        if (audience == null || audience.isBlank() || !audience.startsWith("https://")) {
+            throw new AdapterException("Cloud Run identity-token audience must be a configured HTTPS service URL.");
+        }
         try {
             GoogleCredentials credentials = GoogleCredentials.getApplicationDefault();
             if (!(credentials instanceof IdTokenProvider provider)) {
