@@ -83,6 +83,35 @@ tools:
       method: PUT
       path: /internal/v1/candidate-profile/private-answers
 
+  - name: career.get_site_credential
+    mode: READ
+    description: Load the encrypted owner-only account credential for one HTTPS application origin.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: origin, type: string, required: true, description: "Exact HTTPS origin of the current ATS sign-in page." }
+    endpoint:
+      target: career
+      method: GET
+      path: /internal/v1/site-credentials
+
+  - name: career.prepare_site_credential
+    mode: WRITE
+    description: Create or reuse a unique encrypted credential for one ATS origin before an owner-reviewed sign-up.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: origin, type: string, required: true, description: "Exact HTTPS origin of the current ATS sign-up page." }
+      - { name: username, type: string, required: true, description: "Owner-reviewed account email or username." }
+    endpoint:
+      target: career
+      method: POST
+      path: /internal/v1/site-credentials/prepare
+
   # ── Admin: read ─────────────────────────────────────────────────────────
   - name: admin.search_content
     mode: READ
