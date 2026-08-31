@@ -42,6 +42,12 @@
             <artifactId>micrometer-registry-prometheus</artifactId>
         </dependency>
 
+        <dependency>
+            <groupId>com.google.auth</groupId>
+            <artifactId>google-auth-library-oauth2-http</artifactId>
+            <version>1.49.0</version>
+        </dependency>
+
         <!-- YAML config + tool-catalog parsing -->
         <dependency>
             <groupId>com.fasterxml.jackson.dataformat</groupId>

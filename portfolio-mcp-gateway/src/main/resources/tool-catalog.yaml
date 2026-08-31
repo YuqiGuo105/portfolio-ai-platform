@@ -83,6 +83,121 @@ tools:
       method: PUT
       path: /internal/v1/candidate-profile/private-answers
 
+  - name: career.start_application_workflow
+    mode: WRITE
+    description: Start an idempotent and auditable application workflow after scanning an ATS page.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: applicationId, type: string, required: true, maxLength: 64 }
+      - { name: ats, type: string, required: true, maxLength: 64 }
+      - { name: origin, type: string, required: true, maxLength: 512 }
+      - { name: pageUrl, type: string, required: true, maxLength: 2000 }
+      - { name: jobTitle, type: string, required: false, maxLength: 500 }
+      - { name: detectedFields, type: integer, required: true }
+    endpoint:
+      target: career
+      method: POST
+      path: /internal/v1/application-workflows
+
+  - name: career.get_application_workflow
+    mode: READ
+    description: Read one application state machine and its immutable transition timeline.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: applicationId, type: string, required: true, maxLength: 64 }
+    endpoint:
+      target: career
+      method: GET
+      path: /internal/v1/application-workflows/{applicationId}
+
+  - name: career.record_application_resolution
+    mode: WRITE
+    description: Record deterministic, review-required, and unsupported field counts.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: applicationId, type: string, required: true, maxLength: 64 }
+      - { name: resolved, type: integer, required: true }
+      - { name: requiresReview, type: integer, required: true }
+      - { name: unsupported, type: integer, required: true }
+    endpoint:
+      target: career
+      method: PUT
+      path: /internal/v1/application-workflows/{applicationId}/resolution
+
+  - name: career.record_application_review
+    mode: WRITE
+    description: Record owner-approved fields before values are written to an ATS page.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: applicationId, type: string, required: true, maxLength: 64 }
+      - { name: approvedFields, type: integer, required: true }
+    endpoint:
+      target: career
+      method: PUT
+      path: /internal/v1/application-workflows/{applicationId}/review
+
+  - name: career.record_application_fill
+    mode: WRITE
+    description: Record values written to the current ATS page; this tool never submits the form.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: applicationId, type: string, required: true, maxLength: 64 }
+      - { name: appliedFields, type: integer, required: true }
+      - { name: resumeAttached, type: boolean, required: true }
+      - { name: detectedAction, type: string, required: false, maxLength: 80 }
+    endpoint:
+      target: career
+      method: PUT
+      path: /internal/v1/application-workflows/{applicationId}/fill
+
+  - name: career.record_submission_receipt
+    mode: WRITE
+    description: Record an ATS success-page receipt after manual submit without claiming email confirmation.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: applicationId, type: string, required: true, maxLength: 64 }
+      - { name: successUrl, type: string, required: true, maxLength: 2000 }
+      - { name: externalApplicationId, type: string, required: false, maxLength: 255 }
+      - { name: confirmationText, type: string, required: false, maxLength: 1000 }
+    endpoint:
+      target: career
+      method: PUT
+      path: /internal/v1/application-workflows/{applicationId}/submission
+
+  - name: career.confirm_application_submission
+    mode: WRITE
+    description: Attach an independently observed provider confirmation to a submitted workflow.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: applicationId, type: string, required: true, maxLength: 64 }
+      - { name: channel, type: string, required: true, maxLength: 80 }
+      - { name: externalMessageId, type: string, required: false, maxLength: 255 }
+    endpoint:
+      target: career
+      method: PUT
+      path: /internal/v1/application-workflows/{applicationId}/confirmation
+
   - name: career.get_site_credential
     mode: READ
     description: Load the encrypted owner-only account credential for one HTTPS application origin.
@@ -111,6 +226,243 @@ tools:
       target: career
       method: POST
       path: /internal/v1/site-credentials/prepare
+
+  - name: career.list_private_resumes
+    mode: READ
+    description: List owner-only application resume records from the encrypted private vault.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters: []
+    endpoint:
+      target: career
+      method: GET
+      path: /internal/v1/private-resumes
+
+  - name: career.get_private_resume
+    mode: READ
+    description: Read one owner-only application resume, including its encrypted-at-rest content.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true }
+    endpoint:
+      target: career
+      method: GET
+      path: /internal/v1/private-resumes/{id}
+
+  - name: career.create_private_resume
+    mode: WRITE
+    description: Create an encrypted application resume in the dedicated career database.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: label, type: string, required: true, maxLength: 160 }
+      - { name: content, type: string, required: true, maxLength: 1500000 }
+      - { name: fileName, type: string, required: false, maxLength: 255 }
+      - { name: mimeType, type: string, required: false, maxLength: 120 }
+      - { name: sourceUrl, type: string, required: false, maxLength: 2000 }
+      - { name: active, type: boolean, required: false }
+    endpoint:
+      target: career
+      method: POST
+      path: /internal/v1/private-resumes
+
+  - name: career.update_private_resume
+    mode: WRITE
+    description: Replace one encrypted private application resume using optimistic locking.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true }
+      - { name: label, type: string, required: true, maxLength: 160 }
+      - { name: content, type: string, required: true, maxLength: 1500000 }
+      - { name: fileName, type: string, required: false, maxLength: 255 }
+      - { name: mimeType, type: string, required: false, maxLength: 120 }
+      - { name: sourceUrl, type: string, required: false, maxLength: 2000 }
+      - { name: active, type: boolean, required: false }
+    endpoint:
+      target: career
+      method: PUT
+      path: /internal/v1/private-resumes/{id}
+
+  - name: career.delete_private_resume
+    mode: WRITE
+    description: Soft-delete one private application resume while retaining its audit trail.
+    requiredRole: ADMIN
+    riskLevel: CRITICAL
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true }
+    endpoint:
+      target: career
+      method: DELETE
+      path: /internal/v1/private-resumes/{id}
+
+  - name: career.get_private_answers
+    mode: READ
+    description: Read encrypted owner-only answers for recurring application questions such as work authorization and I-140 status.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters: []
+    endpoint:
+      target: career
+      method: GET
+      path: /internal/v1/private-answers
+
+  - name: career.upsert_private_answer
+    mode: WRITE
+    description: Create or update one encrypted owner-only application answer.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: key, type: string, required: true, maxLength: 240 }
+      - { name: value, type: string, required: true, maxLength: 2000 }
+    endpoint:
+      target: career
+      method: PUT
+      path: /internal/v1/private-answers/{key}
+
+  - name: career.delete_private_answer
+    mode: WRITE
+    description: Delete one private application answer by normalized key.
+    requiredRole: ADMIN
+    riskLevel: CRITICAL
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: key, type: string, required: true, maxLength: 240 }
+    endpoint:
+      target: career
+      method: DELETE
+      path: /internal/v1/private-answers/{key}
+
+  # ── Owner-only public Resume Domain ────────────────────────────────────
+  - name: resume.get_current
+    mode: READ
+    description: Read the currently published public CV and its public metadata.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters: []
+    endpoint:
+      target: admin
+      method: GET
+      path: /api/admin/resume
+
+  - name: resume.list_versions
+    mode: READ
+    description: List public CV draft, published, superseded and archived revisions.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: limit, type: integer, required: false }
+    endpoint:
+      target: admin
+      method: GET
+      path: /api/admin/resume/revisions
+
+  - name: resume.get_version
+    mode: READ
+    description: Read one owner-only public CV revision, including unpublished content.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true }
+    endpoint:
+      target: admin
+      method: GET
+      path: /api/admin/resume/revisions/{id}
+
+  - name: resume.create_revision
+    mode: WRITE
+    description: Create a new public CV draft revision without publishing it.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: content, type: string, required: true, minLength: 1, maxLength: 500000 }
+      - { name: changeNote, type: string, required: false, maxLength: 500 }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/resume/revisions
+
+  - name: resume.update_draft
+    mode: WRITE
+    description: Replace the content of an existing public CV draft revision.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true }
+      - { name: content, type: string, required: true, minLength: 1, maxLength: 500000 }
+      - { name: changeNote, type: string, required: false, maxLength: 500 }
+    endpoint:
+      target: admin
+      method: PUT
+      path: /api/admin/resume/revisions/{id}
+
+  - name: resume.publish_revision
+    mode: WRITE
+    description: Publish one draft as the public CV and supersede the previous revision.
+    requiredRole: ADMIN
+    riskLevel: CRITICAL
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/resume/revisions/{id}/publish
+
+  - name: resume.rollback_revision
+    mode: WRITE
+    description: Create and publish a new revision copied from an earlier public CV revision.
+    requiredRole: ADMIN
+    riskLevel: CRITICAL
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true }
+    endpoint:
+      target: admin
+      method: POST
+      path: /api/admin/resume/revisions/{id}/rollback
+
+  - name: resume.delete_draft
+    mode: WRITE
+    description: Soft-delete a draft public CV revision by archiving it. Published revisions cannot be deleted.
+    requiredRole: ADMIN
+    riskLevel: CRITICAL
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true }
+    endpoint:
+      target: admin
+      method: DELETE
+      path: /api/admin/resume/revisions/{id}
 
   # ── Admin: read ─────────────────────────────────────────────────────────
   - name: admin.search_content
