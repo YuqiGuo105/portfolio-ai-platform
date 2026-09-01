@@ -13,7 +13,7 @@ public class CareerServiceAdapter extends AbstractHttpAdapter {
     @Value("${domain.career.base-url}") private String baseUrl;
     @Value("${domain.career.internal-token:}") private String internalToken;
     @Value("${domain.career.cloud-run-id-token-enabled:false}") private boolean cloudRunIdTokenEnabled;
-    @Value("${domain.career.timeout-ms:15000}") private int timeoutMs;
+    @Value("${domain.career.timeout-ms:25000}") private int timeoutMs;
 
     private final CloudRunIdentityTokenProvider identityTokenProvider;
 

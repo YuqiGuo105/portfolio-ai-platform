@@ -62,7 +62,8 @@ domain:
     base-url: ${CAREER_SERVICE_BASE_URL:http://localhost:8096}
     internal-token: ${CAREER_INTERNAL_TOKEN:}
     cloud-run-id-token-enabled: ${CAREER_CLOUD_RUN_ID_TOKEN_ENABLED:false}
-    timeout-ms: ${CAREER_TIMEOUT_MS:15000}
+    # Covers the application-copilot scale-to-zero cold start without keeping an instance warm.
+    timeout-ms: ${CAREER_TIMEOUT_MS:25000}
 
 security:
   supabase-jwt-secret: ${SUPABASE_JWT_SECRET:}
