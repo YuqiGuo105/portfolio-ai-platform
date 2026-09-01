@@ -69,6 +69,21 @@ tools:
       method: POST
       path: /internal/v1/application-fields/resolve
 
+  - name: career.classify_application_fields
+    mode: READ
+    description: Normalize every detected application question with the low-cost Gemini fallback when local Codex is unavailable; no candidate answers are sent to the model.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: applicationId, type: string, required: true }
+      - { name: fields, type: array, required: true, description: "Detected form questions with id, visible label, control type, and choices; never candidate answers." }
+    endpoint:
+      target: career
+      method: POST
+      path: /internal/v1/application-fields/classify
+
   - name: career.update_private_answers
     mode: WRITE
     description: Update encrypted owner-only answers used for recurring job application questions.
