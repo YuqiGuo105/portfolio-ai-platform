@@ -30,6 +30,22 @@ class AdminServiceAdapterTest {
     }
 
     @Test
+    void forwardsTrustedMcpAuditMetadata() {
+        AdminServiceAdapter adapter = new AdminServiceAdapter(WebClient.builder());
+        ReflectionTestUtils.setField(adapter, "adminSecret", "admin-service-secret");
+        WebClient.RequestHeadersSpec<?> request = mock(WebClient.RequestHeadersSpec.class);
+
+        adapter.decorate(request, Map.of(), Map.of(
+                "_mcpActor", "yuqi", "_mcpTool", "publication.publish",
+                "_mcpClient", "codex", "_mcpModel", "gpt-5.6"));
+
+        verify(request).header("X-MCP-Actor", "yuqi");
+        verify(request).header("X-MCP-Tool", "publication.publish");
+        verify(request).header("X-MCP-Client", "codex");
+        verify(request).header("X-MCP-Model", "gpt-5.6");
+    }
+
+    @Test
     void rejectsCallsWhenServiceCredentialIsMissing() {
         AdminServiceAdapter adapter = new AdminServiceAdapter(WebClient.builder());
         ReflectionTestUtils.setField(adapter, "adminSecret", " ");

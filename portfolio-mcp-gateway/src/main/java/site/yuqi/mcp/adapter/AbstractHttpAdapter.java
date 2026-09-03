@@ -51,6 +51,11 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
         // default: no-op
     }
 
+    protected void decorate(WebClient.RequestHeadersSpec<?> spec, Map<String, Object> args,
+                            Map<String, Object> controlArgs) {
+        decorate(spec, args);
+    }
+
     /** Subclasses may translate catalog argument names into downstream API names. */
     protected void prepareArgs(ToolDefinition tool, Map<String, Object> args) {
         // default: no-op
@@ -64,6 +69,10 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
             throw new AdapterException("Tool " + tool.getName() + " has no endpoint definition.");
         }
         Map<String, Object> mutable = new HashMap<>(args);
+        Map<String, Object> controlArgs = new HashMap<>();
+        mutable.forEach((key, value) -> {
+            if (key != null && key.startsWith("_")) controlArgs.put(key, value);
+        });
         // Strip gateway-internal control flags so they aren't forwarded.
         mutable.keySet().removeIf(k -> k != null && k.startsWith("_"));
         prepareArgs(tool, mutable);
@@ -85,7 +94,7 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
                 request = (WebClient.RequestBodySpec) request.bodyValue(mutable);
             }
         }
-        decorate(request, mutable);
+        decorate(request, mutable, controlArgs);
 
         try {
             Object result = request

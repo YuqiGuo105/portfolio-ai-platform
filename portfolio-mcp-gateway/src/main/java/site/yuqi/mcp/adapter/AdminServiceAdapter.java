@@ -59,7 +59,9 @@ public class AdminServiceAdapter extends AbstractHttpAdapter {
             ToolDefinition tool,
             Map<String, Object> args,
             Map<String, Object> result) {
-        if (!"admin.publish_content".equals(tool.getName())) return result;
+        if (!"admin.publish_content".equals(tool.getName())
+                && !"publication.publish".equals(tool.getName())
+                && !"content.rollback".equals(tool.getName())) return result;
 
         Object identifier = firstPresent(
                 result.get("eventId"),
@@ -147,5 +149,19 @@ public class AdminServiceAdapter extends AbstractHttpAdapter {
             throw new AdapterException("Admin service credential is not configured.");
         }
         spec.header("X-Admin-Secret", adminSecret);
+    }
+
+    @Override
+    protected void decorate(WebClient.RequestHeadersSpec<?> spec, Map<String, Object> args,
+                            Map<String, Object> controlArgs) {
+        decorate(spec, args);
+        header(spec, "X-MCP-Actor", controlArgs.get("_mcpActor"));
+        header(spec, "X-MCP-Tool", controlArgs.get("_mcpTool"));
+        header(spec, "X-MCP-Client", controlArgs.get("_mcpClient"));
+        header(spec, "X-MCP-Model", controlArgs.get("_mcpModel"));
+    }
+
+    private static void header(WebClient.RequestHeadersSpec<?> spec, String name, Object value) {
+        if (value != null && !String.valueOf(value).isBlank()) spec.header(name, String.valueOf(value));
     }
 }

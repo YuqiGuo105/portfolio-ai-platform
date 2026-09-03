@@ -25,6 +25,7 @@ public class ChatBudgetService {
     private static final long USD_MICROS = 1_000_000L;
     private static final String KEY_PREFIX = "agent:budget:chat:daily:";
     private static final String METRICS_KEY_PREFIX = "agent:budget:chat:daily:metrics:";
+    private static final String SETTINGS_KEY = "agent:budget:chat:settings";
     private static final DateTimeFormatter KEY_DATE = DateTimeFormatter.BASIC_ISO_DATE;
 
     private static final DefaultRedisScript<List> RESERVE_SCRIPT = new DefaultRedisScript<>("""
@@ -47,7 +48,7 @@ public class ChatBudgetService {
     @Value("${agent.budget.enabled:true}")
     private boolean enabled;
 
-    @Value("${agent.budget.daily-usd-limit:0.75}")
+    @Value("${agent.budget.daily-usd-limit:2.00}")
     private BigDecimal dailyUsdLimit;
 
     @Value("${agent.budget.per-request-reservation-usd:0.05}")
@@ -83,7 +84,7 @@ public class ChatBudgetService {
 
     public HighCostPathDecision evaluateHighCostPath() {
         BudgetSnapshot snapshot = snapshot();
-        if (!enabled) {
+        if (!effectiveEnabled()) {
             return HighCostPathDecision.allowed("budget_disabled", snapshot);
         }
         if (!deepPathEnabled) {
@@ -100,7 +101,9 @@ public class ChatBudgetService {
 
     public BudgetSnapshot snapshot() {
         BudgetWindow window = currentWindow();
-        long limitMicros = usdToMicros(dailyUsdLimit);
+        BigDecimal effectiveLimit = effectiveDailyLimit();
+        boolean effectiveEnabled = effectiveEnabled();
+        long limitMicros = usdToMicros(effectiveLimit);
         long usedMicros = readLong(window.key());
         long remainingMicros = Math.max(limitMicros - usedMicros, 0L);
         Map<String, Long> counters = readMetricCounters(window.metricsKey());
@@ -117,7 +120,7 @@ public class ChatBudgetService {
         String mode = guardrailMode(usageRatio);
         return new BudgetSnapshot(
                 window.dateKey(),
-                enabled,
+                effectiveEnabled,
                 microsToUsd(limitMicros),
                 microsToUsd(usedMicros),
                 microsToUsd(remainingMicros),
@@ -169,10 +172,10 @@ public class ChatBudgetService {
 
     private BudgetDecision reserve(BigDecimal reservationUsd) {
         BudgetWindow window = currentWindow();
-        long limitMicros = usdToMicros(dailyUsdLimit);
+        long limitMicros = usdToMicros(effectiveDailyLimit());
         long reservationMicros = usdToMicros(reservationUsd);
 
-        if (!enabled || limitMicros <= 0 || reservationMicros <= 0) {
+        if (!effectiveEnabled() || limitMicros <= 0 || reservationMicros <= 0) {
             return BudgetDecision.allowed(
                     microsToUsd(limitMicros),
                     BigDecimal.ZERO,
@@ -311,7 +314,7 @@ public class ChatBudgetService {
     }
 
     private boolean evaluateHighCostAllowed(String mode, BigDecimal usageRatio, long remainingMicros) {
-        if (!enabled || usdToMicros(dailyUsdLimit) <= 0) return deepPathEnabled;
+        if (!effectiveEnabled() || usdToMicros(effectiveDailyLimit()) <= 0) return deepPathEnabled;
         return deepPathEnabled
                 && !"HARD_LIMIT".equals(mode)
                 && usageRatio.compareTo(highCostDisableAtRatio) < 0
@@ -319,7 +322,7 @@ public class ChatBudgetService {
     }
 
     private String guardrailMode(BigDecimal usageRatio) {
-        if (!enabled || usdToMicros(dailyUsdLimit) <= 0) return "DISABLED";
+        if (!effectiveEnabled() || usdToMicros(effectiveDailyLimit()) <= 0) return "DISABLED";
         if (usageRatio.compareTo(BigDecimal.ONE) >= 0) return "HARD_LIMIT";
         if (usageRatio.compareTo(highCostDisableAtRatio) >= 0) return "DEGRADED";
         return "NORMAL";
@@ -336,6 +339,53 @@ public class ChatBudgetService {
 
     private static String sanitizeCounterName(String raw) {
         return raw.replaceAll("[^A-Za-z0-9_.-]", "_");
+    }
+
+    public BudgetSnapshot updateBudget(BigDecimal limitUsd, Boolean enabledValue) {
+        if (limitUsd != null && (limitUsd.compareTo(BigDecimal.ZERO) < 0
+                || limitUsd.compareTo(new BigDecimal("1000")) > 0)) {
+            throw new IllegalArgumentException("limitUsd must be between 0 and 1000");
+        }
+        try {
+            if (limitUsd != null) redisTemplate.opsForHash().put(SETTINGS_KEY, "dailyUsdLimit", limitUsd.toPlainString());
+            if (enabledValue != null) redisTemplate.opsForHash().put(SETTINGS_KEY, "enabled", enabledValue.toString());
+        } catch (Exception e) {
+            throw new IllegalStateException("Budget settings store unavailable", e);
+        }
+        return snapshot();
+    }
+
+    public Map<String, Object> explainSpike() {
+        BudgetSnapshot snapshot = snapshot();
+        Map<String, Long> counters = readMetricCounters(currentWindow().metricsKey());
+        List<Map.Entry<String, Long>> drivers = counters.entrySet().stream()
+                .filter(e -> e.getKey().startsWith("model:") || e.getKey().startsWith("tool:")
+                        || e.getKey().equals("webSearchCalls") || e.getKey().equals("deepModelCalls"))
+                .sorted(Map.Entry.<String, Long>comparingByValue().reversed()).limit(10).toList();
+        return Map.of("date", snapshot.date(), "guardrailMode", snapshot.guardrailMode(),
+                "reservedUsd", snapshot.reservedUsd(), "estimatedLlmUsd", snapshot.estimatedLlmUsd(),
+                "usageRatio", snapshot.usageRatio(), "topDrivers", drivers.stream()
+                        .map(e -> Map.of("metric", e.getKey(), "count", e.getValue())).toList(),
+                "explanation", drivers.isEmpty() ? "No model or tool activity recorded today."
+                        : "Ranked from today's Redis-backed model, tool, and web-search counters.");
+    }
+
+    private boolean effectiveEnabled() {
+        try {
+            Object value = redisTemplate.opsForHash().get(SETTINGS_KEY, "enabled");
+            return value == null ? enabled : Boolean.parseBoolean(String.valueOf(value));
+        } catch (Exception e) {
+            return enabled;
+        }
+    }
+
+    private BigDecimal effectiveDailyLimit() {
+        try {
+            Object value = redisTemplate.opsForHash().get(SETTINGS_KEY, "dailyUsdLimit");
+            return value == null ? dailyUsdLimit : new BigDecimal(String.valueOf(value));
+        } catch (Exception e) {
+            return dailyUsdLimit;
+        }
     }
 
     public record HighCostPathDecision(boolean allowed, String reason, BudgetSnapshot snapshot) {

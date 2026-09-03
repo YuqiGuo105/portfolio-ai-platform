@@ -9,6 +9,7 @@ import site.yuqi.agent.web.AuthenticatedPrincipal;
 import java.math.BigDecimal;
 import java.time.Instant;
 import java.util.Set;
+import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
 import static org.mockito.Mockito.mock;
@@ -67,6 +68,20 @@ class AdminCostGuardrailControllerTest {
         assertThat(response.getStatusCode().is2xxSuccessful()).isTrue();
         assertThat(response.getBody()).isEqualTo(expected);
         verify(budgetService).snapshot();
+    }
+
+    @Test
+    void trustedProxyCanUpdateBudgetAndExplainSpike() {
+        MockHttpServletRequest request = requestWith(new AuthenticatedPrincipal(
+                AuthenticatedPrincipal.Source.INTERNAL_PROXY, null, null, Set.of()));
+        var update = new AdminCostGuardrailController.BudgetUpdateRequest(new BigDecimal("1.25"), true);
+        when(budgetService.updateBudget(update.limitUsd(), update.enabled())).thenReturn(null);
+        when(budgetService.explainSpike()).thenReturn(Map.of("guardrailMode", "NORMAL"));
+
+        assertThat(controller.update(update, request).getStatusCode().is2xxSuccessful()).isTrue();
+        assertThat(controller.explainSpike(request).getBody()).isEqualTo(Map.of("guardrailMode", "NORMAL"));
+        verify(budgetService).updateBudget(new BigDecimal("1.25"), true);
+        verify(budgetService).explainSpike();
     }
 
     private static MockHttpServletRequest requestWith(AuthenticatedPrincipal principal) {

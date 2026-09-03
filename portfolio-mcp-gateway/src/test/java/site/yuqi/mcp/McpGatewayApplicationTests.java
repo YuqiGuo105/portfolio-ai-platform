@@ -69,4 +69,22 @@ class McpGatewayApplicationTests {
         assertThat(tool.getParameters()).filteredOn(parameter -> "imageBase64".equals(parameter.getName()))
                 .singleElement().extracting("maxLength").isEqualTo(7_100_000);
     }
+
+    @Test
+    void governanceOperationsAreExposedThroughCanonicalCatalog() {
+        assertThat(toolRegistry.all()).extracting("name").contains(
+                "publication.publish", "audit.search", "audit.get_change_diff",
+                "content.list_versions", "content.diff_versions", "content.rollback",
+                "visitor.segment_preview", "visitor.rule_test", "visitor.explain_match",
+                "rules.list_templates", "rules.create_from_template",
+                "career.get_profile", "career.update_memory", "resume.activate_version",
+                "platform.health_summary", "platform.run_diagnostics",
+                "cost.get_summary", "cost.set_budget", "cost.explain_spike",
+                "subscription.create", "subscription.list", "subscription.delete");
+
+        var publish = toolRegistry.find("publication.publish").orElseThrow();
+        assertThat(publish.isConfirmRequired()).isTrue();
+        assertThat(publish.getParameters()).extracting("name")
+                .contains("notifySubscribers", "audience");
+    }
 }

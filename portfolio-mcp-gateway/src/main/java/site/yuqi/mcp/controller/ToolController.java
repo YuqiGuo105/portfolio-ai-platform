@@ -87,7 +87,9 @@ public class ToolController {
             @RequestHeader(value = "Authorization", required = false) String auth,
             @RequestHeader(value = "Idempotency-Key", required = false) String idempotencyKey,
             @RequestHeader(value = "X-Actor", required = false) String actor,
-            @RequestHeader(value = "X-Role", required = false) String role) {
+            @RequestHeader(value = "X-Role", required = false) String role,
+            @RequestHeader(value = "X-MCP-Client", required = false) String mcpClient,
+            @RequestHeader(value = "X-MCP-Model", required = false) String mcpModel) {
 
         if (!authorized(auth)) return unauthorized();
 
@@ -161,6 +163,11 @@ public class ToolController {
                     .body(StructuredErrorResponse.of("no_adapter",
                             "No adapter wired for target: " + target, tool.getName()));
         }
+
+        args.put("_mcpActor", actor == null ? "authenticated-admin" : actor);
+        args.put("_mcpTool", tool.getName());
+        if (mcpClient != null) args.put("_mcpClient", mcpClient);
+        if (mcpModel != null) args.put("_mcpModel", mcpModel);
 
         long start = System.currentTimeMillis();
         try {

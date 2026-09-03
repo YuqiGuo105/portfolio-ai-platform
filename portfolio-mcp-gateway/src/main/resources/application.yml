@@ -64,6 +64,10 @@ domain:
     cloud-run-id-token-enabled: ${CAREER_CLOUD_RUN_ID_TOKEN_ENABLED:false}
     # Covers the application-copilot scale-to-zero cold start without keeping an instance warm.
     timeout-ms: ${CAREER_TIMEOUT_MS:25000}
+  agent:
+    base-url: ${AGENT_SERVICE_BASE_URL:http://localhost:8090}
+    internal-token: ${AGENT_SERVICE_INTERNAL_TOKEN:${MCP_GATEWAY_INTERNAL_TOKEN:}}
+    timeout-ms: ${AGENT_TIMEOUT_MS:15000}
 
 security:
   supabase-jwt-secret: ${SUPABASE_JWT_SECRET:}

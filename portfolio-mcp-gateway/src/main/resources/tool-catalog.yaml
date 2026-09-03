@@ -1246,3 +1246,283 @@ tools:
       target: alerts
       method: POST
       path: /api/alert-rules/changes/apply
+
+  # ── Content governance and precise publication ────────────────────────
+  - name: publication.publish
+    mode: WRITE
+    description: Publish a content version, reindex it, and explicitly control whether subscribers or only admins are notified.
+    requiredRole: PUBLISHER
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: sourceType, type: string, required: true }
+      - { name: sourceId, type: string, required: true }
+      - { name: changeNote, type: string, required: false, maxLength: 500 }
+      - { name: notifySubscribers, type: boolean, required: false }
+      - { name: audience, type: string, required: false, enum: [ALL_SUBSCRIBERS, ADMINS_ONLY, NONE] }
+    endpoint: { target: admin, method: POST, path: "/api/admin/content/{sourceType}/{sourceId}/publish" }
+
+  - name: audit.search
+    mode: READ
+    description: Search content mutation audit records by actor, AI client/model, action, or source.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: actor, type: string, required: false }
+      - { name: action, type: string, required: false }
+      - { name: sourceType, type: string, required: false }
+      - { name: sourceId, type: string, required: false }
+      - { name: limit, type: integer, required: false }
+    endpoint: { target: admin, method: GET, path: /api/admin/audit }
+
+  - name: audit.get_change_diff
+    mode: READ
+    description: Return the before/after field diff for one audit entry.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: auditId, type: string, required: true }
+    endpoint: { target: admin, method: GET, path: "/api/admin/audit/{auditId}/diff" }
+
+  - name: content.list_versions
+    mode: READ
+    description: List immutable versions for one article, project, life story, or experience.
+    requiredRole: EDITOR
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: sourceType, type: string, required: true }
+      - { name: sourceId, type: string, required: true }
+      - { name: limit, type: integer, required: false }
+    endpoint: { target: admin, method: GET, path: "/api/admin/content/{sourceType}/{sourceId}/versions" }
+
+  - name: content.diff_versions
+    mode: READ
+    description: Compare two immutable content snapshots field by field.
+    requiredRole: EDITOR
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: sourceType, type: string, required: true }
+      - { name: sourceId, type: string, required: true }
+      - { name: fromVersion, type: integer, required: true }
+      - { name: toVersion, type: integer, required: true }
+    endpoint: { target: admin, method: GET, path: "/api/admin/content/{sourceType}/{sourceId}/versions/diff" }
+
+  - name: content.rollback
+    mode: WRITE
+    description: Restore a historical snapshot as a new version and reindex it; subscriber notifications default to disabled.
+    requiredRole: PUBLISHER
+    riskLevel: CRITICAL
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: sourceType, type: string, required: true }
+      - { name: sourceId, type: string, required: true }
+      - { name: version, type: integer, required: true }
+      - { name: changeNote, type: string, required: false }
+      - { name: notifySubscribers, type: boolean, required: false }
+      - { name: audience, type: string, required: false, enum: [ALL_SUBSCRIBERS, ADMINS_ONLY, NONE] }
+    endpoint: { target: admin, method: POST, path: "/api/admin/content/{sourceType}/{sourceId}/rollback" }
+
+  # ── Visitor intelligence and rule templates ───────────────────────────
+  - name: visitor.segment_preview
+    mode: READ
+    description: Preview aggregate visitor segments without exposing individual visitor records.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: siteId, type: string, required: true }
+      - { name: eventType, type: string, required: false }
+      - { name: geoLevel, type: string, required: false }
+      - { name: geoAreaId, type: string, required: false }
+      - { name: hours, type: integer, required: false }
+      - { name: limit, type: integer, required: false }
+    endpoint: { target: alerts, method: GET, path: /api/visitor-intelligence/segment-preview }
+
+  - name: visitor.rule_test
+    mode: READ
+    description: Evaluate a draft visitor rule against the latest aggregate bucket without creating an incident.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: siteId, type: string, required: true }
+      - { name: name, type: string, required: true }
+      - { name: eventType, type: string, required: true }
+      - { name: geoLevel, type: string, required: true }
+      - { name: geoAreaId, type: string, required: false }
+      - { name: granularity, type: string, required: true }
+      - { name: threshold, type: integer, required: true }
+      - { name: comparator, type: string, required: true }
+      - { name: cooldownSeconds, type: integer, required: true }
+    endpoint: { target: alerts, method: POST, path: /api/visitor-intelligence/rule-test }
+
+  - name: visitor.explain_match
+    mode: READ
+    description: Explain a persisted visitor rule match using its dimensions, latest measurement, comparator, and threshold.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: ruleId, type: integer, required: true }
+    endpoint: { target: alerts, method: GET, path: /api/visitor-intelligence/explain-match }
+
+  - name: rules.list_templates
+    mode: READ
+    description: List safe templates for regional interest, recruiter traffic, returning visitors, and traffic anomalies.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters: []
+    endpoint: { target: alerts, method: GET, path: /api/visitor-intelligence/rule-templates }
+
+  - name: rules.create_from_template
+    mode: WRITE
+    description: Prepare a two-phase alert-rule change from a template; apply remains a separate confirmed operation.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: templateId, type: string, required: true }
+      - { name: siteId, type: string, required: true }
+      - { name: name, type: string, required: false }
+      - { name: geoAreaId, type: string, required: false }
+      - { name: threshold, type: integer, required: false }
+      - { name: actor, type: string, required: false }
+    endpoint: { target: alerts, method: POST, path: /api/visitor-intelligence/rule-templates/prepare }
+
+  # ── Career aliases for private application memory ─────────────────────
+  - name: career.get_profile
+    mode: READ
+    description: Get the owner-only candidate profile assembled from encrypted application memory and portfolio facts.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters: []
+    endpoint: { target: career, method: GET, path: /internal/v1/candidate-profile }
+
+  - name: career.update_memory
+    mode: WRITE
+    description: Update encrypted owner-only recurring application answers; null values delete remembered answers.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: answers, type: object, required: true }
+    endpoint: { target: career, method: PUT, path: /internal/v1/candidate-profile/private-answers }
+
+  - name: resume.activate_version
+    mode: WRITE
+    description: Activate one versioned private application resume from Resume Vault.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: assetId, type: string, required: true }
+    endpoint: { target: career, method: POST, path: "/internal/v1/resume-assets/{assetId}/activate" }
+
+  # ── Cost guardrails ────────────────────────────────────────────────────
+  - name: cost.get_summary
+    mode: READ
+    description: Read today's Redis-backed LLM and tool budget snapshot.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters: []
+    endpoint: { target: cost, method: GET, path: /api/admin/cost-guardrail }
+
+  - name: cost.set_budget
+    mode: WRITE
+    description: Set the shared daily agent budget and enabled state for all instances.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: limitUsd, type: number, required: false }
+      - { name: enabled, type: boolean, required: false }
+    endpoint: { target: cost, method: PUT, path: /api/admin/cost-guardrail }
+
+  - name: cost.explain_spike
+    mode: READ
+    description: Explain today's main model, tool, and web-search cost drivers.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters: []
+    endpoint: { target: cost, method: GET, path: /api/admin/cost-guardrail/explain-spike }
+
+  # ── Signed MCP webhook subscriptions ──────────────────────────────────
+  - name: subscription.create
+    mode: WRITE
+    description: Create an HMAC-signed HTTPS webhook subscription for platform events; the signing secret is returned once.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: callbackUrl, type: string, required: true }
+      - { name: eventTypes, type: array, required: true }
+      - { name: description, type: string, required: false }
+    endpoint: { target: notification, method: POST, path: /api/admin/webhook-subscriptions }
+
+  - name: subscription.list
+    mode: READ
+    description: List active and paused MCP webhook subscriptions without revealing signing secrets.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters: []
+    endpoint: { target: notification, method: GET, path: /api/admin/webhook-subscriptions }
+
+  - name: subscription.delete
+    mode: WRITE
+    description: Disable and remove an MCP webhook subscription.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    dryRunSupported: false
+    confirmRequired: true
+    parameters:
+      - { name: subscriptionId, type: string, required: true }
+    endpoint: { target: notification, method: DELETE, path: "/api/admin/webhook-subscriptions/{subscriptionId}" }
+
+  # ── Cross-service diagnostics ─────────────────────────────────────────
+  - name: platform.health_summary
+    mode: READ
+    description: Return a concise concurrent health summary for API, database/Kafka/email, Search/RAG, visitor rules, Resume Vault, and Redis/agent services.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters: []
+    endpoint: { target: platform, method: GET, path: /health-summary }
+
+  - name: platform.run_diagnostics
+    mode: READ
+    description: Run bounded concurrent service probes and return per-component latency and failure details.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    dryRunSupported: false
+    confirmRequired: false
+    parameters: []
+    endpoint: { target: platform, method: GET, path: /diagnostics }
