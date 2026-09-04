@@ -34,6 +34,10 @@ mcp:
     enabled: true
   idempotency:
     ttl-seconds: ${MCP_IDEMPOTENCY_TTL_S:3600}
+  http:
+    # Project case studies can exceed Spring WebClient's 256 KB default.
+    # Keep the response buffer bounded while allowing full content sanitization.
+    max-in-memory-size: ${MCP_HTTP_MAX_IN_MEMORY_SIZE:2MB}
   analytics:
     min-window-days: ${ANALYTICS_MIN_WINDOW_DAYS:7}
     min-bucket-count: ${ANALYTICS_MIN_BUCKET_COUNT:5}
