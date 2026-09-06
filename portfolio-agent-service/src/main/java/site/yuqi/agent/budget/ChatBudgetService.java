@@ -54,6 +54,9 @@ public class ChatBudgetService {
     @Value("${agent.budget.per-request-reservation-usd:0.05}")
     private BigDecimal perRequestReservationUsd;
 
+    @Value("${agent.budget.per-transcription-reservation-usd:0.01}")
+    private BigDecimal perTranscriptionReservationUsd;
+
     @Value("${agent.budget.standard-model-estimate-usd:0.002}")
     private BigDecimal standardModelEstimateUsd;
 
@@ -79,6 +82,12 @@ public class ChatBudgetService {
     public BudgetDecision reserveChatRequest() {
         BudgetDecision decision = reserve(perRequestReservationUsd);
         recordCounter(decision.allowed() ? "chatRequests" : "budgetDeniedRequests", 1);
+        return decision;
+    }
+
+    public BudgetDecision reserveTranscriptionRequest() {
+        BudgetDecision decision = reserve(perTranscriptionReservationUsd);
+        recordCounter(decision.allowed() ? "transcriptionRequests" : "budgetDeniedRequests", 1);
         return decision;
     }
 

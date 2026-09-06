@@ -149,8 +149,22 @@ public class GeminiGenerationService {
     public String generateWithDocuments(String systemPrompt,
                                         String userMessage,
                                         List<InlineDocument> documents) {
-        String url = baseUrl + "/models/" + utilityModel + ":generateContent?key=" + apiKey;
         ObjectNode requestBody = buildDocumentRequest(systemPrompt, userMessage, documents);
+        return generateDocumentResponse(requestBody);
+    }
+
+    public String transcribeAudio(String systemPrompt, byte[] audio) {
+        ObjectNode requestBody = buildDocumentRequest(systemPrompt, "Transcribe this recording.",
+                List.of(new InlineDocument("recording.wav", "audio/wav", audio)));
+        ObjectNode config = (ObjectNode) requestBody.get("generationConfig");
+        config.put("responseMimeType", "application/json");
+        config.put("temperature", 0);
+        config.put("maxOutputTokens", 2048);
+        return generateDocumentResponse(requestBody);
+    }
+
+    private String generateDocumentResponse(ObjectNode requestBody) {
+        String url = baseUrl + "/models/" + utilityModel + ":generateContent?key=" + apiKey;
 
         String response = webClient.post()
                 .uri(url)
