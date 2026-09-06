@@ -27,6 +27,14 @@ public class CorsConfig implements WebMvcConfigurer {
 
     @Override
     public void addCorsMappings(@NonNull CorsRegistry registry) {
+        // Local previews use the same short-lived signed upload grants as production.
+        registry.addMapping("/api/rag/attachments/*/content")
+                .allowedOrigins(allowedOrigins)
+                .allowedOriginPatterns("http://localhost:[*]", "http://127.0.0.1:[*]")
+                .allowedMethods("PUT", "OPTIONS")
+                .allowedHeaders("Content-Type")
+                .allowCredentials(false)
+                .maxAge(3600);
         registry.addMapping("/api/**")
                 .allowedOrigins(allowedOrigins)
                 .allowedMethods("GET", "POST", "PUT", "DELETE", "OPTIONS")

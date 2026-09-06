@@ -57,6 +57,7 @@ public class SupabaseAttachmentStorage {
                 .uri(storageBase() + "/object/" + encode(bucket) + "/" + encodePath(objectPath))
                 .headers(this::serviceHeaders)
                 .header(HttpHeaders.CONTENT_TYPE, mimeType)
+                .header(HttpHeaders.CACHE_CONTROL, "max-age=0")
                 .header("x-upsert", "false")
                 .bodyValue(content)
                 .retrieve()
