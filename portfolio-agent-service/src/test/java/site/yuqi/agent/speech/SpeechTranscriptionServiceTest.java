@@ -35,6 +35,7 @@ class SpeechTranscriptionServiceTest {
 
     @Test void preservesMixedLanguageWithoutBrowserLocaleAndErasesAudio() throws Exception {
         allow();
+        when(generation.speechModel()).thenReturn("speech-model");
         final byte[][] observed = new byte[1][];
         when(generation.transcribeAudio(anyString(), any())).thenAnswer(call -> {
             observed[0] = call.getArgument(1);
@@ -43,6 +44,7 @@ class SpeechTranscriptionServiceTest {
             return "{\"text\":\"请解释 Kafka consumer lag。\"}";
         });
         assertEquals("请解释 Kafka consumer lag。", service.transcribe(audio(16000, 1)));
+        verify(budget).recordModelCall("speech-model", false, false);
         for (byte value : observed[0]) assertEquals(0, value);
     }
 

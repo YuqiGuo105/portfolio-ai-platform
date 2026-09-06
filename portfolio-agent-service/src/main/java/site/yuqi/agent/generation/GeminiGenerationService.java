@@ -43,6 +43,9 @@ public class GeminiGenerationService {
     @Value("${agent.generation.utility-model:gemini-2.5-flash-lite}")
     private String utilityModel;
 
+    @Value("${agent.speech.model:gemini-2.5-flash}")
+    private String speechModel;
+
     @Value("${agent.generation.max-output-tokens:2048}")
     private int maxOutputTokens;
 
@@ -150,7 +153,7 @@ public class GeminiGenerationService {
                                         String userMessage,
                                         List<InlineDocument> documents) {
         ObjectNode requestBody = buildDocumentRequest(systemPrompt, userMessage, documents);
-        return generateDocumentResponse(requestBody);
+        return generateDocumentResponse(requestBody, utilityModel);
     }
 
     public String transcribeAudio(String systemPrompt, byte[] audio) {
@@ -160,11 +163,13 @@ public class GeminiGenerationService {
         config.put("responseMimeType", "application/json");
         config.put("temperature", 0);
         config.put("maxOutputTokens", 2048);
-        return generateDocumentResponse(requestBody);
+        return generateDocumentResponse(requestBody, speechModel);
     }
 
-    private String generateDocumentResponse(ObjectNode requestBody) {
-        String url = baseUrl + "/models/" + utilityModel + ":generateContent?key=" + apiKey;
+    public String speechModel() { return speechModel; }
+
+    private String generateDocumentResponse(ObjectNode requestBody, String model) {
+        String url = baseUrl + "/models/" + model + ":generateContent?key=" + apiKey;
 
         String response = webClient.post()
                 .uri(url)
