@@ -14,6 +14,7 @@ public class AttachmentService {
     private final AttachmentRegistry registry;
     private final AttachmentUploadSigner uploadSigner;
     private final SupabaseAttachmentStorage storage;
+    private final AttachmentCleanupService cleanup;
 
     @Value("${agent.attachments.max-files-per-conversation:2}")
     private int maxFilesPerConversation;
@@ -96,9 +97,12 @@ public class AttachmentService {
     }
 
     public void deleteOwned(String attachmentId, String conversationId) {
+        // Repeated client cleanup is expected after server-side single-use deletion.
+        if (registry.load(attachmentId) == null) return;
         AttachmentRecord record = registry.requireOwned(attachmentId, conversationId);
-        storage.delete(record.getObjectPath());
-        registry.remove(record);
+        if (!cleanup.delete(record)) {
+            throw new IllegalStateException("Attachment deletion queued for retry");
+        }
     }
 
     public void endConversation(String conversationId) {

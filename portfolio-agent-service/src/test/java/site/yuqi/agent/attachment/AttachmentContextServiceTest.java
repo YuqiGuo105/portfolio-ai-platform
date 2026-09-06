@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Map;
 
 import static org.assertj.core.api.Assertions.assertThat;
+import static org.assertj.core.api.Assertions.assertThatThrownBy;
 import static org.mockito.ArgumentMatchers.anyList;
 import static org.mockito.ArgumentMatchers.anyString;
 import static org.mockito.ArgumentMatchers.eq;
@@ -30,6 +31,7 @@ class AttachmentContextServiceTest {
     private ChatBudgetService budgetService;
     private RedisConversationStore conversationStore;
     private AttachmentContextService service;
+    private AttachmentCleanupService cleanup;
 
     @BeforeEach
     void setUp() {
@@ -38,17 +40,34 @@ class AttachmentContextServiceTest {
         generationService = mock(GeminiGenerationService.class);
         budgetService = mock(ChatBudgetService.class);
         conversationStore = mock(RedisConversationStore.class);
+        cleanup = mock(AttachmentCleanupService.class);
         service = new AttachmentContextService(
                 registry,
                 storage,
                 generationService,
                 budgetService,
                 conversationStore,
-                new MemorySanitizer());
+                new MemorySanitizer(), cleanup);
         ReflectionTestUtils.setField(service, "maxFilesPerRequest", 2);
         ReflectionTestUtils.setField(service, "maxTotalBytes", 8L * 1024 * 1024);
         ReflectionTestUtils.setField(service, "maxContextChars", 6000);
         ReflectionTestUtils.setField(service, "maxParserTextChars", 200000);
+    }
+
+    @Test
+    void removesRawFileEvenWhenParserFails() {
+        byte[] content = "test".getBytes(StandardCharsets.UTF_8);
+        AttachmentRecord record = AttachmentRecord.builder().id("test").conversationId("conv-1")
+                .originalName("test.txt").objectPath("attachments/test/content").mimeType("text/plain")
+                .storedSizeBytes(content.length).status(AttachmentRecord.Status.READY).build();
+        when(registry.requireOwned("test", "conv-1")).thenReturn(record);
+        when(storage.download(record.getObjectPath())).thenReturn(content);
+        when(generationService.generateWithDocuments(anyString(), anyString(), anyList()))
+                .thenThrow(new IllegalStateException("parser failed"));
+        assertThatThrownBy(() -> service.resolve("conv-1", "summarize", List.of(
+                new AgentStreamRequest.AttachmentReference("test", "test.txt", "text/plain", 4L))))
+                .hasMessageContaining("parser failed");
+        verify(cleanup).delete(record);
     }
 
     @Test
@@ -80,6 +99,7 @@ class AttachmentContextServiceTest {
         assertThat(result.cacheHit()).isFalse();
         verify(budgetService).recordModelCall("gemini-2.5-flash-lite", false, false);
         verify(registry).markParsed(eq(record), anyString());
+        verify(cleanup).delete(record);
 
         @SuppressWarnings("unchecked")
         ArgumentCaptor<Map<String, Object>> state = ArgumentCaptor.forClass(Map.class);

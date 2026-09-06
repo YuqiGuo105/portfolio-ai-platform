@@ -107,7 +107,9 @@ public class AttachmentRegistry {
         if (ids == null || ids.isEmpty()) return;
         for (String id : ids) {
             AttachmentRecord record = load(id);
-            if (record != null && constantEquals(record.getConversationId(), conversationId)) {
+            if (record != null && constantEquals(record.getConversationId(), conversationId)
+                    && record.getStatus() != AttachmentRecord.Status.DELETE_RETRY
+                    && record.getExpiresAt() != null && record.getExpiresAt().isAfter(Instant.now())) {
                 touch(record);
             }
         }

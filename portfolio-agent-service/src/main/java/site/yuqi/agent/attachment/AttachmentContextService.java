@@ -39,6 +39,7 @@ public class AttachmentContextService {
     private final ChatBudgetService chatBudgetService;
     private final RedisConversationStore conversationStore;
     private final MemorySanitizer sanitizer;
+    private final AttachmentCleanupService cleanup;
 
     @Value("${agent.attachments.max-files-per-request:2}")
     private int maxFilesPerRequest;
@@ -81,6 +82,17 @@ public class AttachmentContextService {
             records.add(record);
         }
         if (records.isEmpty()) return AttachmentContext.empty();
+
+        try {
+            return parseAndPersist(conversationId, question, records, totalBytes);
+        } finally {
+            // Raw files are single-use; only bounded conversation context may remain.
+            records.forEach(cleanup::delete);
+        }
+    }
+
+    private AttachmentContext parseAndPersist(String conversationId, String question,
+                                              List<AttachmentRecord> records, long totalBytes) {
 
         List<String> cached = records.stream()
                 .map(AttachmentRecord::getParsedContext)

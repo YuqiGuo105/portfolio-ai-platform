@@ -26,7 +26,7 @@ class AttachmentServiceTest {
         registry = mock(AttachmentRegistry.class);
         signer = mock(AttachmentUploadSigner.class);
         storage = mock(SupabaseAttachmentStorage.class);
-        service = new AttachmentService(registry, signer, storage);
+        service = new AttachmentService(registry, signer, storage, mock(AttachmentCleanupService.class));
         ReflectionTestUtils.setField(service, "maxFilesPerConversation", 2);
         ReflectionTestUtils.setField(service, "maxFileBytes", 5L * 1024 * 1024);
         ReflectionTestUtils.setField(service, "uploadUrlTtlSeconds", 300L);

@@ -41,6 +41,8 @@ public class AttachmentController {
         AttachmentService.UploadGrant grant = attachmentService.issueUpload(
                 conversationId, body.getName(), body.getMimeType(), body.getSizeBytes());
         URI uploadUrl = ServletUriComponentsBuilder.fromCurrentContextPath()
+                .scheme(request.isSecure() || "https".equalsIgnoreCase(request.getHeader("X-Forwarded-Proto"))
+                        ? "https" : request.getScheme())
                 .path("/api/rag/attachments/{id}/content")
                 .queryParam("expires", grant.uploadExpiresAtEpochSeconds())
                 .queryParam("signature", grant.signature())

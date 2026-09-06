@@ -67,7 +67,9 @@ public class SupabaseAttachmentStorage {
 
     public byte[] download(String objectPath) {
         ensurePrivateBucket();
-        byte[] bytes = webClient.get()
+        byte[] bytes = webClient.mutate()
+                .codecs(codecs -> codecs.defaultCodecs().maxInMemorySize(Math.toIntExact(maxFileBytes)))
+                .build().get()
                 .uri(storageBase() + "/object/authenticated/" + encode(bucket) + "/" + encodePath(objectPath))
                 .headers(this::serviceHeaders)
                 .retrieve()
