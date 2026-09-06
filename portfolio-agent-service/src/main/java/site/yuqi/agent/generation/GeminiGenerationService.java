@@ -157,8 +157,12 @@ public class GeminiGenerationService {
     }
 
     public String transcribeAudio(String systemPrompt, byte[] audio) {
-        ObjectNode requestBody = buildDocumentRequest(systemPrompt, "Transcribe this recording.",
-                List.of(new InlineDocument("recording.wav", "audio/wav", audio)));
+        ObjectNode requestBody = buildRequest(systemPrompt, "", false, 2048, 0);
+        ObjectNode inlineAudio = objectMapper.createObjectNode()
+                .put("mimeType", "audio/wav")
+                .put("data", Base64.getEncoder().encodeToString(audio));
+        ((ObjectNode) requestBody.path("contents").get(0)).set("parts",
+                objectMapper.createArrayNode().add(objectMapper.createObjectNode().set("inlineData", inlineAudio)));
         ObjectNode config = (ObjectNode) requestBody.get("generationConfig");
         config.put("responseMimeType", "application/json");
         config.put("temperature", 0);
