@@ -16,9 +16,22 @@ public class AdminConversationEventRepository {
 
     private final JdbcTemplate jdbc;
 
+    public List<EventRow> findByRunId(UUID runId) {
+        return jdbc.query("""
+                select id, event_type, payload_json, created_at from outbox_event
+                where payload_json ->> 'runId' = ?
+                  and coalesce(payload_json ->> 'runId', '') <> ''
+                order by created_at asc, id asc
+                limit 501
+                """, (rs, rowNum) -> new EventRow(
+                rs.getObject("id", UUID.class), rs.getString("event_type"),
+                rs.getString("payload_json"), rs.getTimestamp("created_at").toInstant()), runId.toString());
+    }
+
     public List<EventRow> findRunEvents(Instant since, String query, int runLimit) {
         String normalized = query == null ? "" : query.trim().toLowerCase(Locale.ROOT);
-        String pattern = "%" + normalized + "%";
+        normalized = normalized.substring(0, Math.min(normalized.length(), 500));
+        String pattern = "%" + normalized.replace("\\", "\\\\").replace("%", "\\%").replace("_", "\\_") + "%";
 
         return jdbc.query("""
                 with candidate_events as (
@@ -26,7 +39,7 @@ public class AdminConversationEventRepository {
                            payload_json ->> 'runId' as run_id
                     from outbox_event
                     where created_at >= ?
-                      and event_type in (
+                      and split_part(event_type, '.', 1) in (
                           'agent_run', 'agent_step', 'answer', 'model_call',
                           'retrieval', 'safety', 'tool_call'
                       )

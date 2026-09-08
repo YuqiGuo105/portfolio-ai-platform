@@ -21,6 +21,24 @@ class AdminConversationServiceTest {
             new AdminConversationService(repository, new ObjectMapper());
 
     @Test
+    void searchRedactsInternalFieldsInNestedStepDetails() {
+        var runs = service.aggregate(List.of(
+                row("agent_run", Instant.now(), """
+                        {"eventType":"agent_run.started","runId":"run-redaction",
+                         "payload":{"question":"A test question"}}
+                        """),
+                row("retrieval", Instant.now(), """
+                        {"eventType":"retrieval.completed","runId":"run-redaction",
+                         "payload":{"returnedChunks":1,"nested":{"accessToken":"secret-token",
+                         "hiddenReasoning":"hidden-text","chain_of_thought":"hidden-chain"}}}
+                        """)));
+        assertThat(runs).hasSize(1);
+        assertThat(runs.getFirst().steps().getFirst().detail().toString())
+                .contains("returnedChunks=1", "[redacted]")
+                .doesNotContain("secret-token", "hidden-text", "hidden-chain");
+    }
+
+    @Test
     void aggregatesNestedOutboxEventsIntoConversationRunsAndSummary() {
         Instant base = Instant.parse("2026-07-17T01:00:00Z");
         List<AdminConversationEventRepository.EventRow> rows = List.of(
@@ -133,6 +151,37 @@ class AdminConversationServiceTest {
             assertThat(run.status()).isEqualTo("clarify");
             assertThat(run.route()).isEqualTo("CLARIFY");
         });
+    }
+
+    @Test
+    void readsCategoryOnlyAnswersAndTerminalResponsesWithoutMixingRuns() {
+        var runs = service.aggregate(List.of(
+                row("answer", Instant.now(), """
+                        {"runId":"budget-run","status":"budget_exhausted",
+                         "payload":{"question":"Question one","answer":"Budget reached."}}
+                        """),
+                row("agent_run", Instant.now(), """
+                        {"runId":"other-run","eventType":"agent_run.completed",
+                         "payload":{"answer":"A different final answer.","finalStatus":"completed"}}
+                        """)));
+        assertThat(runs).hasSize(2);
+        assertThat(runs.get(0).question()).isEqualTo("Question one");
+        assertThat(runs.get(0).answer()).isEqualTo("Budget reached.");
+        assertThat(runs.get(1).answer()).isEqualTo("A different final answer.");
+    }
+
+    @Test
+    void neverUsesIntermediateModelOutputAsTheFinalAnswer() {
+        var runs = service.aggregate(List.of(
+                row("agent_run", Instant.now(), """
+                        {"runId":"unfinished","eventType":"agent_run.started",
+                         "payload":{"question":"Question"}}
+                        """),
+                row("model_call", Instant.now(), """
+                        {"runId":"unfinished","eventType":"model_call.completed",
+                         "payload":{"answer":"Intermediate draft"}}
+                        """)));
+        assertThat(runs.getFirst().answer()).isNull();
     }
 
     private static AdminConversationEventRepository.EventRow row(

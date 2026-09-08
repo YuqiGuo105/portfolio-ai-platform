@@ -129,8 +129,10 @@ public class AgentPipelineService {
                             budgetDecision.limitUsd());
                     sink.next(stageEvent("budget_check", "Daily chat budget exhausted",
                             budgetPayload(budgetDecision)));
+                    String answer = budgetExceededMessage(budgetDecision);
+                    recordAnswerEvent(request, runId, pipelineStart, answer, "budget_exhausted", "BUDGET");
                     emitRunCompleted(runId, pipelineStart, "budget_exhausted");
-                    sink.next(answerFinalEvent(budgetExceededMessage(budgetDecision),
+                    sink.next(answerFinalEvent(answer,
                             budgetPayload(budgetDecision)));
                     sink.next(doneEvent());
                     sink.complete();
@@ -827,6 +829,7 @@ public class AgentPipelineService {
                                    String route) {
         Map<String, Object> payload = new LinkedHashMap<>();
         payload.put("answer", nonBlank(answer, ""));
+        payload.put("question", nonBlank(request.getQuestion(), ""));
         payload.put("sessionId", nonBlank(request.getSessionId(), ""));
         payload.put("conversationId", nonBlank(request.getConversationId(), ""));
         payload.put("route", nonBlank(route, "MCP_TOOL"));

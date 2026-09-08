@@ -15,6 +15,7 @@ import java.util.List;
 import java.util.Locale;
 import java.util.Map;
 import java.util.Set;
+import java.util.UUID;
 
 @Slf4j
 @Service
@@ -36,6 +37,10 @@ public class AdminConversationService {
 
     private final AdminConversationEventRepository repository;
     private final ObjectMapper objectMapper;
+
+    public Map<String, Object> diagnostics(UUID runId) {
+        return RunDiagnostics.describe(runId, repository.findByRunId(runId), objectMapper);
+    }
 
     public ConversationResponse list(String query, int requestedHours, int requestedLimit) {
         int hours = clamp(requestedHours, 1, MAX_HOURS, DEFAULT_HOURS);
@@ -70,12 +75,15 @@ public class AdminConversationService {
                     run.sessionId = text(payload, "sessionId");
                     run.conversationId = text(payload, "conversationId");
                 } else if ("agent_run.completed".equals(eventType)) {
+                    // Accept a final response carried by the terminal event as well.
+                    run.answer = valueOr(text(payload, "answer"), run.answer);
                     String finalStatus = text(payload, "finalStatus");
                     run.completedAt = timestamp;
                     run.status = valueOr(finalStatus, valueOr(status, run.status));
                     run.route = valueOr(run.route, routeFromFinalStatus(finalStatus));
                     run.latencyMs = latencyMs != null ? latencyMs : run.latencyMs;
-                } else if (eventType.startsWith("answer.")) {
+                } else if (eventType.startsWith("answer.") || "answer".equals(eventType)) {
+                    run.question = valueOr(run.question, text(payload, "question"));
                     run.answer = valueOr(text(payload, "answer"), run.answer);
                     run.route = valueOr(text(payload, "route"), run.route);
                     run.sessionId = valueOr(text(payload, "sessionId"), run.sessionId);
@@ -123,7 +131,7 @@ public class AdminConversationService {
 
     private Map<String, Object> detail(JsonNode payload) {
         if (payload == null || !payload.isObject()) return Map.of();
-        return objectMapper.convertValue(payload, new TypeReference<>() { });
+        return objectMapper.convertValue(RunDiagnostics.sanitize(payload, 0), new TypeReference<>() { });
     }
 
     private static int clamp(int value, int min, int max, int fallback) {

@@ -365,6 +365,17 @@ class AgentPipelineServiceRouteTest {
         assertThat(events).isNotNull();
         assertThat(events).extracting(event -> event.get("stage"))
                 .containsExactly("budget_check", "answer_final", "done");
+        var recorded = ArgumentCaptor.forClass(PlatformEvent.class);
+        verify(eventRecorder, org.mockito.Mockito.atLeastOnce()).record(recorded.capture());
+        Object finalPayload = events.stream().filter(event -> "answer_final".equals(event.get("stage")))
+                .findFirst().orElseThrow().get("payload");
+        assertThat(recorded.getAllValues()).anySatisfy(event -> {
+            assertThat(event.eventType()).isEqualTo("answer.generated");
+            assertThat(event.payload())
+                    .containsEntry("answer", ((Map<?, ?>) finalPayload).get("answer"))
+                    .containsEntry("question", "recent visitors?");
+            assertThat(event.status()).isEqualTo("budget_exhausted");
+        });
         verify(safetyService, never()).checkInput(anyString(), any());
         verify(routePlanner, never()).plan(any(IntentRequest.class));
         verify(knowledgeClient, never()).search(anyString(), anyInt());
