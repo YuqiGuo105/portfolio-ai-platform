@@ -14,6 +14,9 @@ import java.util.HashMap;
 import java.util.Map;
 import java.util.regex.Matcher;
 import java.util.regex.Pattern;
+import io.github.resilience4j.circuitbreaker.*;
+import io.github.resilience4j.bulkhead.*;
+import io.github.resilience4j.ratelimiter.*;
 
 /**
  * Common HTTP forwarding logic shared by all concrete adapters.
@@ -35,6 +38,15 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
     private static final Pattern PATH_VAR = Pattern.compile("\\{([^/}]+)}");
 
     protected final WebClient.Builder webClientBuilder;
+    private final CircuitBreaker circuit = CircuitBreaker.of("downstream", CircuitBreakerConfig.custom()
+            .slidingWindowSize(20).minimumNumberOfCalls(5).failureRateThreshold(50)
+            .waitDurationInOpenState(Duration.ofSeconds(20)).permittedNumberOfCallsInHalfOpenState(2)
+            .recordException(e -> !(e instanceof AdapterException a) || a.getStatusCode()==null || a.getStatusCode()>=500)
+            .build());
+    private final Bulkhead bulkhead = Bulkhead.of("downstream", BulkheadConfig.custom()
+            .maxConcurrentCalls(8).maxWaitDuration(Duration.ZERO).build());
+    private final RateLimiter rateLimiter = RateLimiter.of("downstream", RateLimiterConfig.custom()
+            .limitForPeriod(40).limitRefreshPeriod(Duration.ofSeconds(1)).timeoutDuration(Duration.ZERO).build());
 
     protected AbstractHttpAdapter(WebClient.Builder webClientBuilder) {
         this.webClientBuilder = webClientBuilder;
@@ -65,6 +77,17 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
     @SuppressWarnings("unchecked")
     public Map<String, Object> invoke(ToolDefinition tool, Map<String, Object> args)
             throws AdapterException {
+        try {
+            return RateLimiter.decorateSupplier(rateLimiter,
+                    Bulkhead.decorateSupplier(bulkhead,
+                            CircuitBreaker.decorateSupplier(circuit, () -> invokeOnce(tool,args)))).get();
+        } catch (CallNotPermittedException | BulkheadFullException | RequestNotPermitted e) {
+            throw AdapterException.unavailableBeforeDispatch("Downstream temporarily unavailable; retry the same operation key after 5 seconds.");
+        }
+    }
+
+    @SuppressWarnings("unchecked")
+    private Map<String,Object> invokeOnce(ToolDefinition tool,Map<String,Object> args) {
         if (tool.getEndpoint() == null) {
             throw new AdapterException("Tool " + tool.getName() + " has no endpoint definition.");
         }
@@ -80,7 +103,7 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
         String path = substitutePathVars(tool.getEndpoint().getPath(), mutable);
         HttpMethod method = HttpMethod.valueOf(tool.getEndpoint().getMethod().toUpperCase());
 
-        WebClient client = webClientBuilder.baseUrl(baseUrl()).build();
+        WebClient client = webClientBuilder.clone().baseUrl(baseUrl()).build();
         WebClient.RequestBodySpec request;
 
         if (method == HttpMethod.GET || method == HttpMethod.DELETE) {
@@ -95,6 +118,8 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
             }
         }
         decorate(request, mutable, controlArgs);
+        if(controlArgs.get("_idempotencyKey")!=null) request.header("Idempotency-Key",String.valueOf(controlArgs.get("_idempotencyKey")));
+        if(controlArgs.get("_operationId")!=null) request.header("X-Operation-Id",String.valueOf(controlArgs.get("_operationId")));
 
         try {
             Object result = request
@@ -109,6 +134,12 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
                                             body.getBytes(),
                                             null))))
                     .bodyToMono(Object.class)
+                    .retryWhen(reactor.util.retry.Retry.backoff(
+                            tool.getMode()!=null && tool.getMode().name().equals("READ") ? 1 : 0, Duration.ofMillis(250))
+                            .jitter(0.5)
+                            .filter(e -> e instanceof WebClientResponseException w &&
+                                    java.util.Set.of(502,503,504).contains(w.getStatusCode().value()))
+                            .onRetryExhaustedThrow((spec,signal) -> signal.failure()))
                     .timeout(timeout())
                     .block();
 
@@ -116,14 +147,13 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
             if (result instanceof Map<?, ?> m) return (Map<String, Object>) m;
             return Map.of("data", result);
         } catch (WebClientResponseException e) {
-            log.warn("Adapter {} → {} {} failed: {} body={}",
-                    target(), method, path, e.getStatusCode().value(), e.getResponseBodyAsString());
+            log.warn("Adapter {} failed with HTTP {}", target(), e.getStatusCode().value());
             throw new AdapterException(
-                    "Downstream " + e.getStatusCode().value() + ": " + e.getResponseBodyAsString(),
+                    "Downstream returned HTTP " + e.getStatusCode().value(),
                     e.getStatusCode().value());
         } catch (Exception e) {
-            log.warn("Adapter {} → {} {} failed", target(), method, path, e);
-            throw new AdapterException("Downstream call failed: " + e.getMessage(), e);
+            log.warn("Adapter {} transport failure type={}", target(), e.getClass().getSimpleName());
+            throw new AdapterException("Downstream transport failed; execution outcome may be unknown", e);
         }
     }
 

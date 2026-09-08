@@ -44,22 +44,30 @@ public class AuditService {
         envelope.put("ts", Instant.now().toString());
         envelope.put("stage", "mcp.tool");
         envelope.put("status", status);
-        envelope.put("actor", actor);
+        envelope.put("actorHash", digest(actor));
         envelope.put("tool", tool.getName());
         envelope.put("mode", tool.getMode());
         envelope.put("riskLevel", tool.getRiskLevel());
         envelope.put("requiredRole", tool.getRequiredRole());
-        envelope.put("input", redact(args));
-        envelope.put("idempotencyKey", idempotencyKey);
+        envelope.put("inputKeys", args == null ? java.util.List.of() : args.keySet().stream()
+                .filter(k -> k != null && !k.startsWith("_")).sorted().toList());
+        envelope.put("idempotencyKeyHash", digest(idempotencyKey));
         if (downstreamStatus != null) envelope.put("downstreamStatus", downstreamStatus);
         if (latencyMs != null) envelope.put("latencyMs", latencyMs);
-        if (error != null) envelope.put("error", error);
+        if (error != null) envelope.put("errorPresent", true);
 
         try {
             log.info("AUDIT {}", objectMapper.writeValueAsString(envelope));
         } catch (Exception e) {
             log.info("AUDIT {} (serialization failed: {})", envelope, e.toString());
         }
+    }
+
+    private static String digest(String value) {
+        if(value==null) return "";
+        try { return java.util.HexFormat.of().formatHex(java.security.MessageDigest.getInstance("SHA-256")
+                .digest(value.getBytes(java.nio.charset.StandardCharsets.UTF_8))); }
+        catch (java.security.NoSuchAlgorithmException e) { throw new IllegalStateException(e); }
     }
 
     private Map<String, Object> redact(Map<String, Object> in) {

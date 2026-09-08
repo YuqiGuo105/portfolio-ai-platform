@@ -4,6 +4,14 @@ package site.yuqi.mcp.adapter;
 public class AdapterException extends RuntimeException {
 
     private final Integer statusCode;
+    private boolean notDispatched;
+
+    public static AdapterException unavailableBeforeDispatch(String message) {
+        AdapterException error = new AdapterException(message, 503);
+        error.notDispatched = true;
+        return error;
+    }
+    public boolean isNotDispatched() { return notDispatched; }
 
     public AdapterException(String message) {
         super(message);

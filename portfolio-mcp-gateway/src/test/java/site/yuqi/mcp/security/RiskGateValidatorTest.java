@@ -11,6 +11,12 @@ import java.util.Map;
 import static org.assertj.core.api.Assertions.assertThat;
 
 class RiskGateValidatorTest {
+    @org.junit.jupiter.api.Test
+    void unsupportedDryRunCannotBypassConfirmation() {
+        var tool=ToolDefinition.builder().name("publish").mode(site.yuqi.mcp.model.ToolMode.WRITE)
+                .riskLevel(site.yuqi.mcp.model.RiskLevel.HIGH).confirmRequired(true).dryRunSupported(false).build();
+        org.junit.jupiter.api.Assertions.assertFalse(new RiskGateValidator().check(tool,java.util.Map.of("dryRun",true)).allowed());
+    }
 
     private RiskGateValidator validator;
     private ToolDefinition unsubscribeTool;

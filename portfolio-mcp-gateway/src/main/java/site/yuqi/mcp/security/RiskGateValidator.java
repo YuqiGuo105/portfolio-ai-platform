@@ -23,6 +23,8 @@ import java.util.Map;
 public class RiskGateValidator {
 
     public Outcome check(ToolDefinition tool, Map<String, Object> args) {
+        if (tool.getMode()==ToolMode.WRITE && Boolean.TRUE.equals(args.get("dryRun")) && !tool.isDryRunSupported())
+            return Outcome.fail("This tool does not support dryRun.");
         boolean emailOtp = "email_otp".equalsIgnoreCase(tool.getConfirmationMethod());
         if (emailOtp) {
             Outcome otp = checkEmailOtp(tool, args);

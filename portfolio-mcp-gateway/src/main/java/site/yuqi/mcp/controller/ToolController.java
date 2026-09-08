@@ -143,14 +143,9 @@ public class ToolController {
                     .body(StructuredErrorResponse.of("risk_gate", risk.reason(), tool.getName()));
         }
 
-        // 4. Idempotency (writes only)
-        if (tool.getMode() != null && tool.getMode().name().equals("WRITE")) {
-            Optional<IdempotencyKeyService.CachedResult> cached = idempotencyKeyService.lookup(idempotencyKey);
-            if (cached.isPresent()) {
-                auditService.logInvocation(tool, actor, args, idempotencyKey,
-                        "replay", null, 0L, null);
-                return ResponseEntity.ok(cached.get().getResult());
-            }
+        if (tool.getMode()==site.yuqi.mcp.model.ToolMode.WRITE && Boolean.TRUE.equals(args.get("dryRun"))) {
+            return ResponseEntity.ok(Map.of("tool",name,"state","PREVIEW","dryRun",true,"executed",false,
+                    "nextAction","CONFIRM_AND_INVOKE_WITH_NEW_INTENT_KEY"));
         }
 
         // 5. Dispatch to adapter
@@ -164,8 +159,30 @@ public class ToolController {
                             "No adapter wired for target: " + target, tool.getName()));
         }
 
-        args.put("_mcpActor", actor == null ? "authenticated-admin" : actor);
+        String principal = actor == null || actor.isBlank() ? "authenticated-admin" : actor;
+        if (name.startsWith("operation.")) args.put("principal",principal);
+        boolean write = tool.getMode() != null && tool.getMode().name().equals("WRITE");
+        Map<String,Object> claim = null;
+        if (write) {
+            try {
+                claim = idempotencyKeyService.claim(principal, name, idempotencyKey, args);
+                if (!Boolean.TRUE.equals(claim.get("dispatch"))) {
+                    Map<String,Object> replay = new java.util.LinkedHashMap<>();
+                    if (claim.get("response") instanceof Map<?,?> response)
+                        response.forEach((k,v) -> replay.put(String.valueOf(k),v));
+                    replay.put("operation", operationView(claim));
+                    int status = claim.get("httpStatus") instanceof Number n ? n.intValue() : 409;
+                    return ResponseEntity.status(status).body(replay);
+                }
+            } catch (IdempotencyKeyService.LedgerException e) {
+                return ResponseEntity.status(e.status).body(StructuredErrorResponse.of(e.getMessage(),
+                        "Write admission failed; reuse the same key when retrying. No downstream call was made.",name));
+            }
+        }
+        args.put("_mcpActor", principal);
         args.put("_mcpTool", tool.getName());
+        if (idempotencyKey != null) args.put("_idempotencyKey",idempotencyKey);
+        if (claim != null) args.put("_operationId",claim.get("operationId"));
         if (mcpClient != null) args.put("_mcpClient", mcpClient);
         if (mcpModel != null) args.put("_mcpModel", mcpModel);
 
@@ -173,7 +190,11 @@ public class ToolController {
         try {
             Map<String, Object> result = adapter.invoke(tool, args);
             long latency = System.currentTimeMillis() - start;
-            idempotencyKeyService.remember(idempotencyKey, tool.getName(), result);
+            if (claim != null) {
+                Map<String,Object> completed = idempotencyKeyService.complete(principal,claim,"SUCCEEDED",200,result);
+                result = new java.util.LinkedHashMap<>(result);
+                result.put("operation",completed);
+            }
             auditService.logInvocation(tool, actor, args, idempotencyKey,
                     "ok", 200, latency, null);
             return ResponseEntity.ok(result);
@@ -181,16 +202,43 @@ public class ToolController {
             long latency = System.currentTimeMillis() - start;
             auditService.logInvocation(tool, actor, args, idempotencyKey,
                     "downstream_error", e.getStatusCode(), latency, e.getMessage());
-            return ResponseEntity.status(HttpStatus.BAD_GATEWAY)
-                    .body(StructuredErrorResponse.of("downstream_error", e.getMessage(), tool.getName())
-                            .withDetail("downstreamStatus", e.getStatusCode()));
+            boolean notDispatched = e.isNotDispatched();
+            boolean definite = e.getStatusCode()!=null && e.getStatusCode()>=400 && e.getStatusCode()<500
+                    && e.getStatusCode()!=408;
+            String state = notDispatched ? "RETRYABLE" : definite ? "FAILED_FINAL" : "UNKNOWN";
+            boolean retryable = notDispatched || (!write && (e.getStatusCode()==null || e.getStatusCode()==408
+                    || e.getStatusCode()==429 || e.getStatusCode()>=500));
+            var error = new java.util.LinkedHashMap<String,Object>();
+            error.put("code","downstream_error"); error.put("message",e.getMessage());
+            error.put("tool",name); error.put("retryable",retryable);
+            error.put("safeToRetry",retryable); error.put("ambiguousOutcome",write && "UNKNOWN".equals(state));
+            error.put("retryAfterMs",retryable ? 5000 : 0);
+            if(e.getStatusCode()!=null) error.put("downstreamStatus",e.getStatusCode());
+            if(claim!=null) error.put("operation",finishFailure(principal,claim,state,error));
+            return ResponseEntity.status(notDispatched?503:502).body(error);
         } catch (Exception e) {
             long latency = System.currentTimeMillis() - start;
             auditService.logInvocation(tool, actor, args, idempotencyKey,
                     "error", null, latency, e.getMessage());
-            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR)
-                    .body(StructuredErrorResponse.of("internal_error", e.getMessage(), tool.getName()));
+            var error = new java.util.LinkedHashMap<String,Object>();
+            error.put("code","internal_error"); error.put("message","Operation failed; check status before retrying.");
+            error.put("retryable",!write); error.put("ambiguousOutcome",write);
+            if(claim!=null) error.put("operation",finishFailure(principal,claim,"UNKNOWN",error));
+            return ResponseEntity.status(HttpStatus.INTERNAL_SERVER_ERROR).body(error);
         }
+    }
+
+    private Map<String,Object> finishFailure(String principal,Map<String,Object> claim,String state,Map<String,Object> error) {
+        try { return idempotencyKeyService.complete(principal,claim,state,"RETRYABLE".equals(state)?503:502,error); }
+        catch (Exception unavailable) {
+            var result=operationView(claim); result.put("state","UNKNOWN"); result.put("ambiguousOutcome",true);
+            result.put("retryable",false); result.put("safeToRetry",false); result.put("nextAction","POLL_STATUS"); return result;
+        }
+    }
+
+    private static Map<String,Object> operationView(Map<String,Object> claim) {
+        var result=new java.util.LinkedHashMap<>(claim);
+        result.remove("leaseToken"); result.remove("dispatch"); result.remove("response"); return result;
     }
 
     private boolean authorized(String authorizationHeader) {

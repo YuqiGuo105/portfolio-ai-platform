@@ -95,6 +95,7 @@ public class AdminServiceAdapter extends AbstractHttpAdapter {
 
     @Override
     protected void prepareArgs(ToolDefinition tool, Map<String, Object> args) {
+        // Caller identity is injected by the gateway, never accepted from the tool's arguments.
         if ("admin.get_operation_timeline".equals(tool.getName()) && args.containsKey("query")) {
             args.put("q", args.remove("query"));
             return;
