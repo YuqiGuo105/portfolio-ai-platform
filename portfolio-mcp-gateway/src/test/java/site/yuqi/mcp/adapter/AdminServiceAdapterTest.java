@@ -19,6 +19,32 @@ import static org.mockito.Mockito.verify;
 class AdminServiceAdapterTest {
 
     @Test
+    void forwardsUnicodeAndReservedQueryCharactersExactlyOnce() {
+        java.util.concurrent.atomic.AtomicReference<java.net.URI> captured = new java.util.concurrent.atomic.AtomicReference<>();
+        WebClient.Builder client = WebClient.builder().exchangeFunction(request -> {
+            captured.set(request.url());
+            return reactor.core.publisher.Mono.just(
+                    org.springframework.web.reactive.function.client.ClientResponse
+                            .create(org.springframework.http.HttpStatus.OK)
+                            .header("Content-Type", "application/json").body("{\"items\":[]}").build());
+        });
+        AdminServiceAdapter adapter = new AdminServiceAdapter(client);
+        ReflectionTestUtils.setField(adapter, "baseUrl", "https://admin.example.test");
+        ReflectionTestUtils.setField(adapter, "timeoutMs", 15000);
+        ReflectionTestUtils.setField(adapter, "adminSecret", "test-service-secret");
+        ToolDefinition tool = ToolDefinition.builder().name("admin.search_content")
+                .endpoint(new ToolDefinition.Endpoint("admin", "GET", "/api/contents")).build();
+        String keyword = "面试 interview C++ & offer {2026} 100%";
+        adapter.invoke(tool, Map.of("sourceType", "LIFE_BLOG", "keyword", keyword));
+        Map<String, String> decoded = java.util.Arrays.stream(captured.get().getRawQuery().split("&"))
+                .map(pair -> pair.split("=", 2)).collect(java.util.stream.Collectors.toMap(
+                        pair -> pair[0], pair -> java.net.URLDecoder.decode(pair[1], java.nio.charset.StandardCharsets.UTF_8)));
+        assertEquals(keyword, decoded.get("keyword"));
+        assertEquals("LIFE_BLOG", decoded.get("type"));
+        assertFalse(captured.get().getRawQuery().contains("%25E9"));
+    }
+
+    @Test
     void forwardsConfiguredServiceCredential() {
         AdminServiceAdapter adapter = new AdminServiceAdapter(WebClient.builder());
         ReflectionTestUtils.setField(adapter, "adminSecret", "admin-service-secret");

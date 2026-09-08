@@ -107,10 +107,16 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
         WebClient.RequestBodySpec request;
 
         if (method == HttpMethod.GET || method == HttpMethod.DELETE) {
-            String uri = UriComponentsBuilder.fromPath(path)
-                    .queryParams(toQueryParams(mutable))
-                    .toUriString();
-            request = (WebClient.RequestBodySpec) client.method(method).uri(uri);
+            // Expand query values exactly once; passing an encoded String to WebClient encodes it again.
+            UriComponentsBuilder uri = UriComponentsBuilder.fromUriString(baseUrl()).path(path);
+            Map<String, Object> variables = new HashMap<>();
+            toQueryParams(mutable).forEach((key, values) -> values.forEach(value -> {
+                String variable = "query" + variables.size();
+                variables.put(variable, value);
+                uri.queryParam(key, "{" + variable + "}");
+            }));
+            request = (WebClient.RequestBodySpec) client.method(method)
+                    .uri(uri.encode().buildAndExpand(variables).toUri());
         } else {
             request = client.method(method).uri(path);
             if (!mutable.isEmpty()) {
