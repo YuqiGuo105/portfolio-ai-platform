@@ -614,13 +614,13 @@ tools:
   # ── Admin: read ─────────────────────────────────────────────────────────
   - name: admin.search_content
     mode: READ
-    description: Search portfolio content (blogs, projects, life blogs, experience).
+    description: Search or list portfolio content (blogs, projects, life blogs, experience). Omit keyword to list the selected sourceType within the result limit.
     requiredRole: VIEWER
     riskLevel: LOW
     dryRunSupported: false
     confirmRequired: false
     parameters:
-      - { name: keyword,    type: string,  required: true,  description: "Free-text keyword." }
+      - { name: keyword,    type: string,  required: false, description: "Optional free-text keyword; omit for a bounded listing." }
       - { name: sourceType, type: string,  required: false, description: "BLOG | PROJECT | LIFE | EXPERIENCE." }
       - { name: category,   type: string,  required: false, description: "Category slug filter." }
       - { name: limit,      type: integer, required: false, description: "Default 10, max 50." }
