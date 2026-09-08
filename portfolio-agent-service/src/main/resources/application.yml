@@ -165,6 +165,12 @@ knowledge:
   # Allows a scale-to-zero Knowledge Service to finish its cold start.
   timeout-ms: ${KNOWLEDGE_TIMEOUT_MS:25000}
 
+portfolio:
+  public-profile:
+    github-url: ${PUBLIC_GITHUB_URL:}
+    leetcode-url: ${PUBLIC_LEETCODE_URL:}
+    instagram-url: ${PUBLIC_INSTAGRAM_URL:}
+
 # ─── Safety + Handoff ────────────────────────────────────────────────────
 safety:
   enabled: ${SAFETY_ENABLED:true}

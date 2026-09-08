@@ -65,6 +65,7 @@ public class AgentPipelineService {
     private final ChatBudgetService chatBudgetService;
     private final WebGuidePlanService webGuidePlanService;
     private final AttachmentContextService attachmentContextService;
+    private final PublicProfileLinks publicProfileLinks;
     private final AgentRunLifecycle runLifecycle;
 
     private static final String SYSTEM_PROMPT = """
@@ -451,6 +452,14 @@ public class AgentPipelineService {
                     chunkIds = searchResponse.results().stream()
                             .map(hit -> hit.chunkId() != null ? hit.chunkId() : "unknown")
                             .toList();
+                }
+                String profileLinkEvidence = needsPortfolioEvidence
+                        ? publicProfileLinks.evidenceContext()
+                        : "";
+                if (!profileLinkEvidence.isBlank()) {
+                    contextChunks = contextChunks.isBlank()
+                            ? profileLinkEvidence
+                            : contextChunks + "\n---\n" + profileLinkEvidence;
                 }
 
                 // Emit: retrieval.completed

@@ -89,6 +89,10 @@ class AgentPipelineServiceRouteTest {
                 chatBudgetService,
                 new WebGuidePlanService(),
                 attachmentContextService,
+                new PublicProfileLinks(
+                        "https://github.com/YuqiGuo105",
+                        "https://leetcode.com/u/SY0JvhmwHK/",
+                        "https://www.instagram.com/yuqi_guo17/"),
                 new AgentRunLifecycle(eventRecorder));
 
         SafetyCheckResult pass = SafetyCheckResult.builder()
@@ -114,6 +118,34 @@ class AgentPipelineServiceRouteTest {
                 Instant.parse("2026-07-10T00:00:00Z")));
         when(chatBudgetService.evaluateHighCostPath())
                 .thenReturn(ChatBudgetService.HighCostPathDecision.allowed("within_budget", null));
+    }
+
+    @Test
+    void portfolioQuestionReceivesVerifiedPublicProfileLinks() {
+        IntentResult intent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.98, "zh", "Yuqi public profiles",
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        when(routePlanner.plan(any(IntentRequest.class))).thenReturn(AgentRouteDecision.knowledge(intent));
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just(
+                        "GitHub、LeetCode 和 Instagram 官方链接已列出。"));
+
+        var events = service.runPipeline(AgentStreamRequest.builder()
+                .sessionId("profile-links-session")
+                .question("他的 GitHub、LeetCode 和 Instagram 链接是什么？")
+                .build()).collectList().block();
+
+        assertThat(events).isNotNull();
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(generationService).streamGenerate(anyString(), prompt.capture());
+        assertThat(prompt.getValue())
+                .contains("Official Public Profile Links")
+                .contains("https://github.com/YuqiGuo105")
+                .contains("https://leetcode.com/u/SY0JvhmwHK/")
+                .contains("https://www.instagram.com/yuqi_guo17/")
+                .contains("do not guess or rewrite it");
     }
 
     @Test
