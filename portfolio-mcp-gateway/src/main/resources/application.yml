@@ -43,6 +43,9 @@ mcp:
     min-bucket-count: ${ANALYTICS_MIN_BUCKET_COUNT:5}
 
 domain:
+  knowledge:
+    base-url: ${KNOWLEDGE_SERVICE_BASE_URL:http://localhost:8092}
+    internal-token: ${KNOWLEDGE_INTERNAL_TOKEN:${AGENT_SERVICE_INTERNAL_TOKEN:}}
   portfolio:
     base-url: ${PORTFOLIO_BASE_URL:http://localhost:3000}
     timeout-ms: ${PORTFOLIO_TIMEOUT_MS:15000}

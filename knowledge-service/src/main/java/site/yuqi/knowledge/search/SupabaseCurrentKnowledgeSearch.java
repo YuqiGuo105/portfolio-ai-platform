@@ -71,6 +71,11 @@ public class SupabaseCurrentKnowledgeSearch {
                 && "approved".equals(text(meta, "evidence_review"));
     }
 
+    static boolean approvedAnswer(Map<String, Object> meta) {
+        return eligible(meta) && isReviewedAnswer(meta)
+                && Boolean.TRUE.equals(meta.get("retrieval_eligible"));
+    }
+
     private static String text(Map<String, Object> meta, String key) {
         return meta.get(key) instanceof String value ? value : "";
     }

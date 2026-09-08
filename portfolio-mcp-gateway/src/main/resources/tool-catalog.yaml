@@ -26,6 +26,26 @@
 #     riskLevel / confirmRequired flags.
 
 tools:
+  - name: portfolio.get_public_profile
+    mode: READ
+    description: Read explicitly approved public profile evidence. No private CV or application memory is accessed.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    confirmRequired: false
+    parameters: []
+    endpoint: { target: knowledge, method: GET, path: /internal/v1/knowledge/public/profile }
+
+  - name: portfolio.search_public_knowledge
+    mode: READ
+    description: Semantically search published public-answer content and owner-approved personal snippets across languages. Restricted source identifiers and URLs are withheld.
+    requiredRole: VIEWER
+    riskLevel: LOW
+    confirmRequired: false
+    parameters:
+      - { name: query, type: string, required: true, minLength: 1, maxLength: 300 }
+      - { name: limit, type: integer, required: false }
+    endpoint: { target: knowledge, method: POST, path: /internal/v1/knowledge/public/search }
+
   - name: operation.get_status
     mode: READ
     description: Get durable status for your MCP write operation. UNKNOWN means verify downstream effects before any retry. SUCCEEDED confirms the tool call, not asynchronous delivery.
