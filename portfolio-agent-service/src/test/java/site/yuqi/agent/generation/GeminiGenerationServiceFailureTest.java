@@ -58,4 +58,18 @@ class GeminiGenerationServiceFailureTest {
         assertThat(service.streamGenerate("system", "question").collectList().block(Duration.ofSeconds(3)))
                 .containsExactly("Synthetic answer");
     }
+
+    @Test
+    void metadataAndDoneFramesDoNotBreakAValidStream() {
+        var service = service(HttpStatus.OK,
+                "data: {}\n\n"
+                        + "data: {\"candidates\":[{\"content\":{\"parts\":[{},"
+                        + "{\"text\":\"芝加哥和克里夫兰\"}]}}]}\n\n"
+                        + "data: [DONE]\n\n",
+                MediaType.TEXT_EVENT_STREAM);
+
+        assertThat(service.streamGenerate("system", "他去过芝加哥和克里夫兰吗？")
+                .collectList().block(Duration.ofSeconds(3)))
+                .containsExactly("芝加哥和克里夫兰");
+    }
 }

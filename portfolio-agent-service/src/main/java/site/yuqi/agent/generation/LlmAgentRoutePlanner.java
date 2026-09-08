@@ -10,6 +10,7 @@ import site.yuqi.agent.intent.IntentRequest;
 import site.yuqi.agent.intent.IntentResult;
 import site.yuqi.agent.intent.IntentType;
 import site.yuqi.agent.intent.IntentValidator;
+import site.yuqi.agent.intent.RiskLevel;
 
 /**
  * LLM-owned route planner for the streaming agent endpoint.
@@ -34,7 +35,7 @@ public class LlmAgentRoutePlanner {
     private boolean reviewGeneralChat;
 
     public AgentRouteDecision plan(IntentRequest request) {
-        IntentResult intent = classifier.classify(request);
+        IntentResult intent = normalizeReadOnlyResponseIntent(classifier.classify(request));
         IntentValidator.ValidationResult validation = validator.validate(intent);
 
         if (!IntentValidator.hasValidEnvelope(intent) || validation.getStatus() == IntentValidator.Status.REJECT) {
@@ -47,7 +48,7 @@ public class LlmAgentRoutePlanner {
                 && intent.targetTool() != null) {
             IntentResult escalated = classifier.escalate(request, intent);
             if (escalated != intent) {
-                intent = escalated;
+                intent = normalizeReadOnlyResponseIntent(escalated);
                 validation = validator.validate(intent);
             }
         }
@@ -60,7 +61,7 @@ public class LlmAgentRoutePlanner {
             try {
                 IntentResult reviewed = classifier.reviewRoute(request, intent);
                 if (reviewed != intent) {
-                    intent = reviewed;
+                    intent = normalizeReadOnlyResponseIntent(reviewed);
                     validation = validator.validate(intent);
                 }
             } catch (IntentClassificationException e) {
@@ -69,6 +70,27 @@ public class LlmAgentRoutePlanner {
         }
 
         return strategies.select(intent, validation);
+    }
+
+    /**
+     * Response routes never execute tools. A classifier may still emit a
+     * read-only tool hint while choosing a response intent; discard that
+     * irrelevant hint without weakening validation for write-shaped output.
+     */
+    private static IntentResult normalizeReadOnlyResponseIntent(IntentResult intent) {
+        if (intent == null || intent.targetTool() == null || intent.targetTool().isBlank()
+                || intent.riskLevel() != RiskLevel.READ_ONLY
+                || intent.requiresConfirmation()
+                || (intent.intent() != IntentType.GENERAL_CHAT
+                    && intent.intent() != IntentType.KNOWLEDGE_QA
+                    && intent.intent() != IntentType.WEB_GUIDE)) {
+            return intent;
+        }
+        return new IntentResult(
+                intent.intent(), null, intent.confidence(), intent.language(), intent.normalizedQuery(),
+                intent.entities(), intent.riskLevel(), false, intent.missingEntities(),
+                intent.clarificationQuestion(), intent.responsePolicy(), intent.responseConstraints(),
+                intent.generationTier(), intent.progressMessage());
     }
 
     /**

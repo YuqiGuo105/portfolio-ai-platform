@@ -168,6 +168,40 @@ class LlmAgentRoutePlannerTest {
     }
 
     @Test
+    void ignoresReadOnlyToolHintOnKnowledgeAnswerIntent() {
+        IntentResult noisyIntent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, "admin.search_content", 0.90, "zh", "Yuqi open source work",
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        when(classifier.classify(request)).thenReturn(noisyIntent);
+        when(validator.validate(any(IntentResult.class))).thenAnswer(invocation -> {
+            IntentResult normalized = invocation.getArgument(0);
+            assertThat(normalized.targetTool()).isNull();
+            return IntentValidator.ValidationResult.builder()
+                    .status(IntentValidator.Status.GENERAL_CHAT).build();
+        });
+
+        AgentRouteDecision decision = planner.plan(request);
+
+        assertThat(decision.route()).isEqualTo(AgentRoute.KNOWLEDGE_QA);
+        assertThat(decision.intent().targetTool()).isNull();
+    }
+
+    @Test
+    void doesNotNormalizeWriteShapedResponseIntent() {
+        IntentResult unsafeIntent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, "admin.publish_content", 0.99, "zh", null,
+                Map.of(), RiskLevel.RISKY_WRITE, true, List.of(), null);
+        when(classifier.classify(request)).thenReturn(unsafeIntent);
+        when(validator.validate(unsafeIntent)).thenReturn(IntentValidator.ValidationResult.builder()
+                .status(IntentValidator.Status.REJECT).build());
+
+        AgentRouteDecision decision = planner.plan(request);
+
+        assertThat(decision.route()).isEqualTo(AgentRoute.CLARIFY);
+        assertThat(decision.intent()).isSameAs(unsafeIntent);
+    }
+
+    @Test
     void malformedSemanticReviewFailsClosed() {
         IntentResult initial = pendingIntent(IntentType.GENERAL_CHAT, 0.95, null);
         when(classifier.classify(request)).thenReturn(initial);

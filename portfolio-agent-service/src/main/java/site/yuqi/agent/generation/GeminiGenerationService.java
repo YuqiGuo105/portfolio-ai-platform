@@ -88,7 +88,7 @@ public class GeminiGenerationService {
                 .timeout(Duration.ofSeconds(60))
                 .filter(line -> line != null && !line.isBlank())
                 .map(this::extractTextDelta)
-                .filter(delta -> delta != null && !delta.isEmpty())
+                .filter(delta -> !delta.isEmpty())
                 .switchIfEmpty(Flux.error(new IllegalStateException("Generation returned no answer")))
                 .onErrorMap(e -> new IllegalStateException("Generation provider unavailable", e));
     }
@@ -284,7 +284,7 @@ public class GeminiGenerationService {
             if (json.isBlank() || json.equals("[DONE]")) return new GroundedChunk("", List.of());
             JsonNode node = objectMapper.readTree(json);
             JsonNode candidate = node.path("candidates").path(0);
-            String text = candidate.path("content").path("parts").path(0).path("text").asText("");
+            String text = extractCandidateText(candidate);
             List<GroundedSource> sources = new java.util.ArrayList<>();
             JsonNode chunks = candidate.path("groundingMetadata").path("groundingChunks");
             if (chunks.isArray()) {
@@ -311,19 +311,16 @@ public class GeminiGenerationService {
         try {
             // SSE data line: "data: {...}"
             String json = sseData.startsWith("data:") ? sseData.substring(5).trim() : sseData;
-            if (json.isBlank() || json.equals("[DONE]")) return null;
+            if (json.isBlank() || json.equals("[DONE]")) return "";
             JsonNode node = objectMapper.readTree(json);
             JsonNode candidates = node.path("candidates");
             if (candidates.isArray() && !candidates.isEmpty()) {
-                JsonNode parts = candidates.get(0).path("content").path("parts");
-                if (parts.isArray() && !parts.isEmpty()) {
-                    return parts.get(0).path("text").asText("");
-                }
+                return extractCandidateText(candidates.get(0));
             }
         } catch (Exception e) {
             log.trace("Failed to parse SSE chunk: {}", sseData);
         }
-        return null;
+        return "";
     }
 
     private String extractFullText(String responseJson) {
@@ -331,14 +328,25 @@ public class GeminiGenerationService {
             JsonNode node = objectMapper.readTree(responseJson);
             JsonNode candidates = node.path("candidates");
             if (candidates.isArray() && !candidates.isEmpty()) {
-                JsonNode parts = candidates.get(0).path("content").path("parts");
-                if (parts.isArray() && !parts.isEmpty()) {
-                    return parts.get(0).path("text").asText("");
-                }
+                return extractCandidateText(candidates.get(0));
             }
         } catch (Exception e) {
             log.error("Failed to parse Gemini response", e);
         }
         return "";
+    }
+
+    private static String extractCandidateText(JsonNode candidate) {
+        JsonNode parts = candidate.path("content").path("parts");
+        if (!parts.isArray()) return "";
+
+        StringBuilder text = new StringBuilder();
+        for (JsonNode part : parts) {
+            JsonNode value = part.get("text");
+            if (value != null && value.isTextual()) {
+                text.append(value.asText());
+            }
+        }
+        return text.toString();
     }
 }
