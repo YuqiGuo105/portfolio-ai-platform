@@ -17,7 +17,7 @@ public class WebGuidePlanService {
 
     public WebGuidePlan build(IntentResult intent) {
         String language = normalizeLanguage(intent == null ? null : intent.language());
-        Map<String, Object> entities = intent == null ? Map.of() : intent.entities();
+        Map<String, Object> entities = intent == null || intent.entities() == null ? Map.of() : intent.entities();
         List<String> selectedKeys = selectedKeys(entities.get("guideTargetKeys"));
         String startMode = normalizeStartMode(entities.get("guideStartMode"));
         String responseMessage = cleanText(entities.get("guideResponseMessage"), 240);

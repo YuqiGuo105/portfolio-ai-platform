@@ -85,7 +85,7 @@ agent:
 
   budget:
     enabled: ${AGENT_BUDGET_ENABLED:true}
-    daily-usd-limit: ${AGENT_CHAT_DAILY_BUDGET_USD:0.75}
+    daily-usd-limit: ${AGENT_CHAT_DAILY_BUDGET_USD:2.00}
     per-request-reservation-usd: ${AGENT_CHAT_REQUEST_RESERVATION_USD:0.05}
     standard-model-estimate-usd: ${AGENT_STANDARD_MODEL_ESTIMATE_USD:0.002}
     deep-model-estimate-usd: ${AGENT_DEEP_MODEL_ESTIMATE_USD:0.04}

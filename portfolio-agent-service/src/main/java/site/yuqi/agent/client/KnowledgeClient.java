@@ -22,8 +22,10 @@ public class KnowledgeClient {
 
     public KnowledgeClient(WebClient.Builder builder,
                            @Value("${knowledge.base-url:http://localhost:8092}") String baseUrl,
-                           @Value("${knowledge.timeout-ms:10000}") int timeoutMs) {
-        this.webClient = builder.baseUrl(baseUrl)
+                           @Value("${knowledge.timeout-ms:10000}") int timeoutMs,
+                           @Value("${KNOWLEDGE_INTERNAL_TOKEN:${AGENT_SERVICE_INTERNAL_TOKEN:}}") String internalToken) {
+        this.webClient = builder.clone().baseUrl(baseUrl)
+                .defaultHeader("X-Internal-Token", internalToken)
                 .build();
         this.timeout = Duration.ofMillis(Math.max(1000, timeoutMs));
     }

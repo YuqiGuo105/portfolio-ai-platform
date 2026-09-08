@@ -10,8 +10,12 @@ import java.util.List;
 public record KnowledgeSearchResponse(
         String queryId,
         List<ChunkHit> results,
-        int latencyMs
+        int latencyMs,
+        String retrievalStrategy
 ) {
+    public KnowledgeSearchResponse(String queryId, List<ChunkHit> results, int latencyMs) {
+        this(queryId, results, latencyMs, null);
+    }
     @Builder
     public record ChunkHit(
             String chunkId,
@@ -21,6 +25,12 @@ public record KnowledgeSearchResponse(
             double score,
             String sourceType,
             String sourceId,
-            String sourceUrl
-    ) {}
+            String sourceUrl,
+            boolean sourceRequiresLogin
+    ) {
+        public ChunkHit(String chunkId, String documentId, String title, String content, double score,
+                        String sourceType, String sourceId, String sourceUrl) {
+            this(chunkId, documentId, title, content, score, sourceType, sourceId, sourceUrl, false);
+        }
+    }
 }

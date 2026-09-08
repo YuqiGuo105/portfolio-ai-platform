@@ -1,8 +1,8 @@
 server:
   port: ${PORT:8092}
   error:
-    include-message: always
-    include-stacktrace: always
+    include-message: never
+    include-stacktrace: never
 
 portfolio:
   public-base-url: ${PORTFOLIO_PUBLIC_BASE_URL:https://www.yuqi.site}
@@ -12,6 +12,13 @@ spring:
     name: knowledge-service
 
 knowledge:
+  internal-token: ${KNOWLEDGE_INTERNAL_TOKEN:${AGENT_SERVICE_INTERNAL_TOKEN:}}
+  supabase:
+    enabled: ${KNOWLEDGE_SUPABASE_ENABLED:false}
+    url: ${SUPABASE_URL:}
+    service-key: ${SUPABASE_SERVICE_ROLE_KEY:}
+    dimensions: 1536
+    min-similarity: ${KNOWLEDGE_MIN_SIMILARITY:0.35}
   opensearch:
     url: ${OPENSEARCH_URL:https://os-79250b0-yguo105-17e7.l.aivencloud.com:22949}
     username: ${OPENSEARCH_USERNAME:avnadmin}

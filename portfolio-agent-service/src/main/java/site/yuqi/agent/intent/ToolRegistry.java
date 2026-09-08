@@ -75,6 +75,24 @@ public class ToolRegistry {
                 Set.of("query"),
                 Set.of("limit")
         ));
+        register(new ToolDefinition(
+                "admin.list_failed_operations",
+                IntentType.ADMIN_LIST_FAILED_OPERATIONS,
+                "List failed async workflow steps across indexing jobs and outbox publication.",
+                RiskLevel.READ_ONLY,
+                false,
+                Set.of(),
+                Set.of("kind", "limit")
+        ));
+        register(new ToolDefinition(
+                "admin.list_admin_users",
+                IntentType.ADMIN_LIST_USERS,
+                "List admin users and role/status assignments.",
+                RiskLevel.READ_ONLY,
+                false,
+                Set.of(),
+                Set.of("status", "role", "limit", "offset")
+        ));
 
         // ── Analytics: privacy-safe aggregate reads ────────────────────
         register(new ToolDefinition(
@@ -222,6 +240,51 @@ public class ToolRegistry {
                 true,
                 Set.of("jobId"),
                 Set.of()
+        ));
+        register(new ToolDefinition(
+                "admin.retry_failed_operation",
+                IntentType.ADMIN_RETRY_FAILED_OPERATION,
+                "Retry one failed async workflow step by kind and id.",
+                RiskLevel.SAFE_WRITE,
+                true,
+                Set.of("kind", "id"),
+                Set.of()
+        ));
+        register(new ToolDefinition(
+                "admin.replay_outbox_event",
+                IntentType.ADMIN_REPLAY_OUTBOX_EVENT,
+                "Replay a sent, failed, or dead-lettered outbox event.",
+                RiskLevel.RISKY_WRITE,
+                true,
+                Set.of("eventId"),
+                Set.of()
+        ));
+        register(new ToolDefinition(
+                "admin.drain_recovery_workers",
+                IntentType.ADMIN_DRAIN_RECOVERY_WORKERS,
+                "Drain ready indexing and outbox workers once.",
+                RiskLevel.SAFE_WRITE,
+                true,
+                Set.of(),
+                Set.of()
+        ));
+        register(new ToolDefinition(
+                "admin.upsert_admin_user",
+                IntentType.ADMIN_UPSERT_USER,
+                "Create or update an admin user's role/status assignment.",
+                RiskLevel.RISKY_WRITE,
+                true,
+                Set.of("email", "role"),
+                Set.of("status", "displayName", "note")
+        ));
+        register(new ToolDefinition(
+                "admin.update_admin_user_status",
+                IntentType.ADMIN_UPDATE_USER_STATUS,
+                "Activate or suspend an admin user without deleting the record.",
+                RiskLevel.RISKY_WRITE,
+                true,
+                Set.of("userId", "status"),
+                Set.of("note")
         ));
 
         // ── Notification: read ──────────────────────────────────────────

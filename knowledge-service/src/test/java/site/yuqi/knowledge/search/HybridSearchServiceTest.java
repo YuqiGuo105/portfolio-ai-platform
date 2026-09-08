@@ -28,11 +28,11 @@ class HybridSearchServiceTest {
         KnowledgeSourceUrlResolver urlResolver =
                 new KnowledgeSourceUrlResolver("https://www.yuqi.site");
         HybridSearchService service =
-                new HybridSearchService(repository, embeddingClient, urlResolver);
+                new HybridSearchService(repository, embeddingClient, urlResolver, mock(SupabaseCurrentKnowledgeSearch.class));
 
         when(repository.keywordSearch(anyString(), any(), isNull(), anyInt()))
                 .thenReturn(List.of());
-        when(embeddingClient.embed(anyString())).thenThrow(new IllegalStateException("provider down"));
+        when(embeddingClient.embedQuery(anyString(), anyInt())).thenThrow(new IllegalStateException("provider down"));
         when(repository.contentProjectionSearch("Portfolio Platform", 6))
                 .thenReturn(List.of(KnowledgeChunk.builder()
                         .chunkId("content:PROJECT:project-1")
@@ -63,7 +63,7 @@ class HybridSearchServiceTest {
         KnowledgeSourceUrlResolver urlResolver =
                 new KnowledgeSourceUrlResolver("https://www.yuqi.site");
         HybridSearchService service =
-                new HybridSearchService(repository, embeddingClient, urlResolver);
+                new HybridSearchService(repository, embeddingClient, urlResolver, mock(SupabaseCurrentKnowledgeSearch.class));
         KnowledgeChunk chunk = KnowledgeChunk.builder()
                 .chunkId("chunk-1")
                 .documentId("project-1")
@@ -75,7 +75,7 @@ class HybridSearchServiceTest {
 
         when(repository.keywordSearch(anyString(), any(), isNull(), anyInt()))
                 .thenReturn(List.of(chunk));
-        when(embeddingClient.embed(anyString())).thenReturn(new float[]{0.1f});
+        when(embeddingClient.embedQuery(anyString(), anyInt())).thenReturn(new float[]{0.1f});
         when(repository.vectorSearch(any(float[].class), any(), isNull(), anyInt()))
                 .thenReturn(List.of());
 
@@ -95,7 +95,7 @@ class HybridSearchServiceTest {
         KnowledgeSourceUrlResolver urlResolver =
                 new KnowledgeSourceUrlResolver("https://www.yuqi.site");
         HybridSearchService service =
-                new HybridSearchService(repository, embeddingClient, urlResolver);
+                new HybridSearchService(repository, embeddingClient, urlResolver, mock(SupabaseCurrentKnowledgeSearch.class));
         KnowledgeChunk legacyChunk = KnowledgeChunk.builder()
                 .chunkId("legacy-portfolio-0")
                 .documentId("legacy-portfolio")
@@ -115,7 +115,7 @@ class HybridSearchServiceTest {
 
         when(repository.keywordSearch(anyString(), any(), isNull(), anyInt()))
                 .thenReturn(List.of(legacyChunk));
-        when(embeddingClient.embed(anyString())).thenReturn(new float[]{0.1f});
+        when(embeddingClient.embedQuery(anyString(), anyInt())).thenReturn(new float[]{0.1f});
         when(repository.vectorSearch(any(float[].class), any(), isNull(), anyInt()))
                 .thenReturn(List.of());
         when(repository.contentProjectionSearch("Portfolio Platform", 6))

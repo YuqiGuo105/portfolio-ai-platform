@@ -25,6 +25,7 @@ public class LlmAgentRoutePlanner {
 
     private final IntentClassifier classifier;
     private final IntentValidator validator;
+    private final AgentRouteStrategies strategies;
 
     @Value("${agent.intent.pending-action.decision-confidence:0.80}")
     private double pendingDecisionConfidence;
@@ -35,6 +36,10 @@ public class LlmAgentRoutePlanner {
     public AgentRouteDecision plan(IntentRequest request) {
         IntentResult intent = classifier.classify(request);
         IntentValidator.ValidationResult validation = validator.validate(intent);
+
+        if (!IntentValidator.hasValidEnvelope(intent) || validation.getStatus() == IntentValidator.Status.REJECT) {
+            return strategies.select(intent, validation);
+        }
 
         if (validation.getStatus() == IntentValidator.Status.CLARIFY
                 && intent.intent() != IntentType.CLARIFICATION_NEEDED
@@ -47,7 +52,11 @@ public class LlmAgentRoutePlanner {
             }
         }
 
-        if (reviewGeneralChat && intent.intent() == IntentType.GENERAL_CHAT) {
+        if (!IntentValidator.hasValidEnvelope(intent)) {
+            return strategies.select(intent, validation);
+        }
+        if (reviewGeneralChat && (intent.intent() == IntentType.GENERAL_CHAT || intent.intent() == IntentType.WEB_GUIDE)
+                && validation.getStatus() != IntentValidator.Status.REJECT) {
             try {
                 IntentResult reviewed = classifier.reviewRoute(request, intent);
                 if (reviewed != intent) {
@@ -59,29 +68,7 @@ public class LlmAgentRoutePlanner {
             }
         }
 
-        return switch (intent.intent()) {
-            case KNOWLEDGE_QA -> AgentRouteDecision.knowledge(intent);
-            case WEB_GUIDE -> AgentRouteDecision.webGuide(intent);
-            case HANDOFF_REQUESTED -> AgentRouteDecision.handoff(intent,
-                    nonBlank(intent.clarificationQuestion(),
-                            "I can connect you with a human support agent. Please confirm and provide an email for follow-up."));
-            case GENERAL_CHAT -> AgentRouteDecision.generalChat(intent,
-                    nonBlank(intent.clarificationQuestion(),
-                            "I can help with Yuqi's portfolio, site analytics, content operations, and support workflows."));
-            case UNKNOWN, CLARIFICATION_NEEDED, PENDING_ACTION_CONFIRM,
-                    PENDING_ACTION_CANCEL, PENDING_ACTION_CLARIFY -> AgentRouteDecision.clarify(intent,
-                    nonBlank(validation.getMessage(),
-                            nonBlank(intent.clarificationQuestion(), "Could you clarify what you need?")));
-            default -> switch (validation.getStatus()) {
-                case EXECUTE -> AgentRouteDecision.tool(intent);
-                case GENERAL_CHAT -> AgentRouteDecision.generalChat(intent,
-                        "I can help with Yuqi's portfolio, site analytics, content operations, and support workflows.");
-                case CLARIFY -> AgentRouteDecision.clarify(intent,
-                        nonBlank(validation.getMessage(), "Could you clarify what you need?"));
-                case REJECT -> AgentRouteDecision.clarify(intent,
-                        nonBlank(validation.getMessage(), "I could not safely route that request."));
-            };
-        };
+        return strategies.select(intent, validation);
     }
 
     /**
@@ -92,6 +79,9 @@ public class LlmAgentRoutePlanner {
      */
     public PendingActionDecision planPendingAction(IntentRequest request) {
         IntentResult intent = classifier.classify(request);
+        if (!IntentValidator.hasValidEnvelope(intent)) {
+            return PendingActionDecision.clarify(intent, "Please clearly confirm or cancel the pending action.");
+        }
         if (intent.confidence() < pendingDecisionConfidence) {
             return PendingActionDecision.clarify(intent,
                     nonBlank(intent.clarificationQuestion(),
@@ -111,7 +101,8 @@ public class LlmAgentRoutePlanner {
     }
 
     public AgentRouteDecision classificationError(IntentClassificationException e) {
-        return AgentRouteDecision.clarify(null, "I could not route that request safely: " + e.getMessage());
+        log.warn("Intent classification unavailable: {}", e.toString());
+        return AgentRouteDecision.clarify(null, "I could not interpret that request right now. Please try again.");
     }
 
     private static String nonBlank(String value, String fallback) {

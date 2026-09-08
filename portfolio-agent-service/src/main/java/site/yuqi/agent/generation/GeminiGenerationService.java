@@ -89,10 +89,8 @@ public class GeminiGenerationService {
                 .filter(line -> line != null && !line.isBlank())
                 .map(this::extractTextDelta)
                 .filter(delta -> delta != null && !delta.isEmpty())
-                .onErrorResume(e -> {
-                    log.error("Gemini stream error: {}", e.getMessage());
-                    return Flux.just("[Error generating response: " + e.getMessage() + "]");
-                });
+                .switchIfEmpty(Flux.error(new IllegalStateException("Generation returned no answer")))
+                .onErrorMap(e -> new IllegalStateException("Generation provider unavailable", e));
     }
 
     /**
@@ -116,11 +114,8 @@ public class GeminiGenerationService {
                 .filter(line -> line != null && !line.isBlank())
                 .map(this::extractGroundedChunk)
                 .filter(chunk -> !chunk.text().isEmpty() || !chunk.sources().isEmpty())
-                .onErrorResume(e -> {
-                    log.error("Gemini grounded stream error: {}", e.getMessage());
-                    return Flux.just(new GroundedChunk(
-                            "[Error generating grounded response: " + e.getMessage() + "]", List.of()));
-                });
+                .switchIfEmpty(Flux.error(new IllegalStateException("Research returned no answer")))
+                .onErrorMap(e -> new IllegalStateException("Research provider unavailable", e));
     }
 
     /**

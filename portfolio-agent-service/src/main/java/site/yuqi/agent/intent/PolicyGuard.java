@@ -34,12 +34,19 @@ public class PolicyGuard {
             Map.entry("admin.list_indexing_jobs",          Role.VIEWER),
             Map.entry("admin.list_outbox_events",          Role.VIEWER),
             Map.entry("admin.get_operation_timeline",      Role.VIEWER),
+            Map.entry("admin.list_failed_operations",      Role.ADMIN),
+            Map.entry("admin.list_admin_users",            Role.ADMIN),
             Map.entry("admin.create_content_draft",        Role.EDITOR),
             Map.entry("admin.update_content",              Role.EDITOR),
             Map.entry("admin.publish_content",             Role.PUBLISHER),
             Map.entry("admin.reindex_rag",                 Role.PUBLISHER),
             Map.entry("admin.reindex_search",              Role.PUBLISHER),
             Map.entry("admin.retry_indexing_job",          Role.ADMIN),
+            Map.entry("admin.retry_failed_operation",      Role.ADMIN),
+            Map.entry("admin.replay_outbox_event",         Role.ADMIN),
+            Map.entry("admin.drain_recovery_workers",      Role.ADMIN),
+            Map.entry("admin.upsert_admin_user",           Role.ADMIN),
+            Map.entry("admin.update_admin_user_status",    Role.ADMIN),
 
             Map.entry("analytics.get_visitor_summary",     Role.VIEWER),
             Map.entry("analytics.get_top_pages",           Role.VIEWER),
@@ -145,6 +152,18 @@ public class PolicyGuard {
             case ADMIN_REINDEX_SEARCH -> "About to reindex " + args.get("sourceType") + "/" + args.get("sourceId")
                     + " into OpenSearch. Confirm?";
             case ADMIN_RETRY_INDEXING_JOB -> "Retry indexing job " + args.get("jobId") + "?";
+            case ADMIN_RETRY_FAILED_OPERATION ->
+                    "Retry failed operation " + args.get("kind") + "/" + args.get("id") + "?";
+            case ADMIN_REPLAY_OUTBOX_EVENT ->
+                    "Replay outbox event " + args.get("eventId")
+                            + "? Downstream consumers should deduplicate by idempotency key.";
+            case ADMIN_DRAIN_RECOVERY_WORKERS ->
+                    "Drain ready outbox and indexing workers once?";
+            case ADMIN_UPSERT_USER ->
+                    "Create or update admin user " + maskEmail(args.get("email"))
+                            + " with role " + args.get("role") + "?";
+            case ADMIN_UPDATE_USER_STATUS ->
+                    "Change admin user " + args.get("userId") + " to " + args.get("status") + "?";
             case ANALYTICS_GET_VISITOR_SUMMARY, ANALYTICS_GET_TOP_PAGES, ANALYTICS_GET_REFERRER_SUMMARY ->
                     "Analyze aggregate analytics from " + args.get("startDate") + " to " + args.get("endDate")
                             + "? For privacy, I will only return aggregate metrics and suppress small buckets.";

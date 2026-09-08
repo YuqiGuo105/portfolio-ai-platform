@@ -1535,6 +1535,30 @@ tools:
       - { name: subscriptionId, type: string, required: true }
     endpoint: { target: notification, method: DELETE, path: "/api/admin/webhook-subscriptions/{subscriptionId}" }
 
+  - name: agent.search_runs
+    mode: READ
+    description: Search private Chat Agent history by question, sessionId, conversationId or runId. Returns answers and recorded steps. Start here when a visitor reports an inaccurate answer, then call agent.get_run_diagnostics with its runId. Admin only; never disclose visitor histories in public answers.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: q, type: string, required: false, maxLength: 500, description: "Question text or a session, conversation or run identifier." }
+      - { name: hours, type: integer, required: false, description: "Lookback hours, 1-720; default 168." }
+      - { name: limit, type: integer, required: false, description: "Maximum runs, 1-100; default 50." }
+    endpoint: { target: agent, method: GET, path: /api/admin/conversations }
+
+  - name: agent.get_run_diagnostics
+    mode: READ
+    description: Inspect one Chat Agent run from the durable database, including ordered events, routing, retrieval provenance, model and prompt versions, safety outcomes, timings, and diagnostic gaps. Old events may lack provenance; this tool reports that gap rather than inventing sources. Does not replay the request or invoke an LLM. Admin only.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    dryRunSupported: false
+    confirmRequired: false
+    parameters:
+      - { name: runId, type: string, required: true, description: "Exact run UUID from agent.search_runs or the chat response." }
+    endpoint: { target: agent, method: GET, path: "/api/admin/conversations/runs/{runId}" }
+
   # ── Cross-service diagnostics ─────────────────────────────────────────
   - name: platform.health_summary
     mode: READ

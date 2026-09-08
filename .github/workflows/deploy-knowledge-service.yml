@@ -2,7 +2,8 @@ name: Deploy knowledge-service
 
 on:
   workflow_run:
-    workflows: ["CI \u2013 Build & Test"]
+    # The agent must send its service token before knowledge enforces authentication.
+    workflows: ["Deploy portfolio-agent-service"]
     branches: [main]
     types: [completed]
 
@@ -90,6 +91,11 @@ jobs:
           docker push "${IMAGE}"
           echo "IMAGE=${IMAGE}" >> "$GITHUB_ENV"
 
+      - name: Check current knowledge configuration
+        env:
+          SUPABASE_URL: ${{ vars.SUPABASE_URL }}
+        run: test -n "$SUPABASE_URL"
+
       - name: Deploy to Cloud Run
         run: |
           gcloud run deploy "${SERVICE_NAME}" \
@@ -107,8 +113,8 @@ jobs:
             --cpu-throttling \
             --cpu-boost \
             --timeout=60 \
-            --set-env-vars="^|^SPRING_PROFILES_ACTIVE=prod|PORTFOLIO_PUBLIC_BASE_URL=${{ vars.PORTFOLIO_BASE_URL || 'https://www.yuqi.site' }}" \
-            --update-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENSEARCH_PASSWORD=OPENSEARCH_PASSWORD:latest"
+            --set-env-vars="^|^SPRING_PROFILES_ACTIVE=prod|PORTFOLIO_PUBLIC_BASE_URL=${{ vars.PORTFOLIO_BASE_URL || 'https://www.yuqi.site' }}|KNOWLEDGE_SUPABASE_ENABLED=true|EMBEDDING_MODEL=gemini-embedding-001|SUPABASE_URL=${{ vars.SUPABASE_URL }}" \
+            --update-secrets="GEMINI_API_KEY=GEMINI_API_KEY:latest,OPENSEARCH_PASSWORD=OPENSEARCH_PASSWORD:latest,SUPABASE_SERVICE_ROLE_KEY=SUPABASE_SERVICE_ROLE_KEY:latest,KNOWLEDGE_INTERNAL_TOKEN=AGENT_SERVICE_INTERNAL_TOKEN:latest"
 
       - name: Verify ready revision and health
         run: |

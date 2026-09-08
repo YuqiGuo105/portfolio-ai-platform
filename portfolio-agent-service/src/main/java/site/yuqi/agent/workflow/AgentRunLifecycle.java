@@ -28,22 +28,22 @@ public class AgentRunLifecycle {
     private final Map<UUID, AgentRunState> activeRuns = new ConcurrentHashMap<>();
 
     public void begin(UUID runId) {
-        activeRuns.put(runId, AgentRunState.RECEIVED);
-        emit(runId, null, AgentRunState.RECEIVED);
+        activeRuns.computeIfAbsent(runId, id -> {
+            emit(id, null, AgentRunState.RECEIVED);
+            return AgentRunState.RECEIVED;
+        });
     }
 
     public void transition(UUID runId, AgentRunState next) {
         activeRuns.compute(runId, (id, current) -> {
             if (current == null) {
-                log.warn("Ignoring state transition for unknown run={} next={}", runId, next);
-                return null;
+                throw new IllegalStateException("Unknown or finished agent run: " + runId);
             }
             if (current == next) {
                 return current;
             }
             if (!ALLOWED.getOrDefault(current, EnumSet.noneOf(AgentRunState.class)).contains(next)) {
-                log.warn("Ignoring invalid agent state transition run={} from={} to={}", runId, current, next);
-                return current;
+                throw new IllegalStateException("Invalid agent state transition: " + current + " -> " + next);
             }
             emit(runId, current, next);
             return next;
@@ -52,10 +52,12 @@ public class AgentRunLifecycle {
 
     public void complete(UUID runId, String finalStatus) {
         AgentRunState terminal = terminalState(finalStatus);
-        AgentRunState previous = activeRuns.remove(runId);
-        if (previous != null && previous != terminal) {
-            emit(runId, previous, terminal);
-        }
+        // Serialize completion with transitions so terminal events cannot precede
+        // an in-flight transition event. Repeated completion is a no-op.
+        activeRuns.computeIfPresent(runId, (id, previous) -> {
+            if (previous != terminal) emit(id, previous, terminal);
+            return null;
+        });
     }
 
     AgentRunState current(UUID runId) {
@@ -63,20 +65,25 @@ public class AgentRunLifecycle {
     }
 
     private void emit(UUID runId, AgentRunState previous, AgentRunState current) {
-        eventRecorder.record(PlatformEvent.now("agent_run.state_changed")
+        try {
+            eventRecorder.record(PlatformEvent.now("agent_run.state_changed")
                 .runId(runId)
                 .service("agent-runtime-service")
                 .status(current.name().toLowerCase())
                 .payload(Map.of(
                         "previousState", previous == null ? "" : previous.name(),
                         "state", current.name()))
-                .build());
+                    .build());
+        } catch (RuntimeException e) {
+            // Observability failure must not change workflow semantics or leak active runs.
+            log.warn("Failed to record state for run={} state={}", runId, current, e);
+        }
     }
 
     private static AgentRunState terminalState(String status) {
-        if ("blocked".equals(status)) return AgentRunState.BLOCKED;
+        if ("blocked".equals(status) || "forbidden".equals(status)) return AgentRunState.BLOCKED;
         if (status != null && status.startsWith("handoff")) return AgentRunState.HANDOFF;
-        if ("failed".equals(status) || "budget_exhausted".equals(status)) return AgentRunState.FAILED;
+        if ("failed".equals(status) || "error".equals(status) || "budget_exhausted".equals(status)) return AgentRunState.FAILED;
         return AgentRunState.COMPLETED;
     }
 

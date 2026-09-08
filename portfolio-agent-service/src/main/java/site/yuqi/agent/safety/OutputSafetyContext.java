@@ -15,8 +15,13 @@ public record OutputSafetyContext(
         String userMessage,
         String candidateResponse,
         String responsePolicy,
-        List<String> responseConstraints
+        List<String> responseConstraints,
+        String groundingEvidence
 ) {
+    public OutputSafetyContext(String userMessage, String candidateResponse, String responsePolicy,
+                               List<String> responseConstraints) {
+        this(userMessage, candidateResponse, responsePolicy, responseConstraints, null);
+    }
     public OutputSafetyContext {
         if (responsePolicy == null) responsePolicy = "STANDARD";
         if (responseConstraints == null) responseConstraints = List.of();

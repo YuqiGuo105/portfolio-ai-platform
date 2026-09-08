@@ -44,8 +44,15 @@ public class IntentValidator {
     }
 
     public ValidationResult validate(IntentResult intent) {
-        if (intent == null) {
-            return ValidationResult.builder().status(Status.REJECT).message("Null intent.").build();
+        if (!hasValidEnvelope(intent)) {
+            return ValidationResult.builder().status(Status.REJECT).message("Invalid intent envelope.").build();
+        }
+        if ((intent.intent() == IntentType.GENERAL_CHAT || intent.intent() == IntentType.KNOWLEDGE_QA
+                || intent.intent() == IntentType.WEB_GUIDE || intent.intent() == IntentType.HANDOFF_REQUESTED)
+                && (intent.targetTool() != null && !intent.targetTool().isBlank()
+                    || intent.riskLevel() != RiskLevel.READ_ONLY)) {
+            return ValidationResult.builder().status(Status.REJECT)
+                    .message("Response intents cannot carry operational tools or write privileges.").build();
         }
 
         switch (intent.intent()) {
@@ -172,6 +179,12 @@ public class IntentValidator {
         }
 
         return ValidationResult.builder().status(Status.EXECUTE).tool(tool).build();
+    }
+
+    public static boolean hasValidEnvelope(IntentResult intent) {
+        return intent != null && intent.intent() != null && intent.riskLevel() != null
+                && Double.isFinite(intent.confidence())
+                && intent.confidence() >= 0 && intent.confidence() <= 1;
     }
 
     private static String nonBlank(String v, String fallback) {

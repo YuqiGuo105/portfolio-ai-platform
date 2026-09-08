@@ -31,6 +31,7 @@ public final class WebGuideCatalog {
                 - GENERAL_CHAT is reserved for conversational turns that require no portfolio facts or content lookup.
                 - If the user names, references, or follows up about a portfolio entity and wants its introduction, details, source, or link, return KNOWLEDGE_QA even when the utterance is only a short title or noun phrase.
                 - Choose WEB_GUIDE only when the primary expected outcome is a UI action such as guiding, locating, highlighting, or opening an area of the website. Do not substitute a generic guide response for an information request.
+                - Asking how a section works, which technologies it uses, its workflow, architecture, or a diagram is KNOWLEDGE_QA, even if it names a visible page section. Explain from evidence rather than starting a tour. If explanation and navigation are both requested, prioritize answering the information request; a guide may be offered afterwards.
                 - For WEB_GUIDE use targetTool=null, riskLevel=READ_ONLY, requiresConfirmation=false, and generationTier=STANDARD.
                 - Put guideTargetKeys in entities as an ordered subset of these keys: %s.
                 - Put guideStartMode in entities as START_NOW or OFFER. Choose it from the user's intent and conversational context.

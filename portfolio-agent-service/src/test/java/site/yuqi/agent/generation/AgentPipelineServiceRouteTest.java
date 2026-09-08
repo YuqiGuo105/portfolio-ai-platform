@@ -89,7 +89,7 @@ class AgentPipelineServiceRouteTest {
                 chatBudgetService,
                 new WebGuidePlanService(),
                 attachmentContextService,
-                mock(AgentRunLifecycle.class));
+                new AgentRunLifecycle(eventRecorder));
 
         SafetyCheckResult pass = SafetyCheckResult.builder()
                 .verdict(SafetyVerdict.PASS)
@@ -336,11 +336,16 @@ class AgentPipelineServiceRouteTest {
 
         assertThat(events).isNotNull();
         ArgumentCaptor<PlatformEvent> eventCaptor = ArgumentCaptor.forClass(PlatformEvent.class);
-        verify(eventRecorder, times(3)).record(eventCaptor.capture());
-        List<PlatformEvent> recorded = eventCaptor.getAllValues();
+        verify(eventRecorder, org.mockito.Mockito.atLeastOnce()).record(eventCaptor.capture());
+        assertThat(eventCaptor.getAllValues().stream()
+                .filter(event -> "agent_run.state_changed".equals(event.eventType()))
+                .map(event -> event.payload().get("state")))
+                .containsExactly("RECEIVED", "ADMITTED", "GUARDING", "PLANNING", "FINALIZING", "COMPLETED");
+        List<PlatformEvent> recorded = eventCaptor.getAllValues().stream()
+                .filter(event -> !"agent_run.state_changed".equals(event.eventType())).toList();
         assertThat(recorded).extracting(PlatformEvent::eventType)
-                .containsExactly("agent_run.started", "answer.generated", "agent_run.completed");
-        assertThat(recorded.get(1).payload())
+                .containsExactly("agent_run.started", "agent_step.routing_completed", "answer.generated", "agent_run.completed");
+        assertThat(recorded.get(2).payload())
                 .containsEntry("answer", "Which time range should I use?")
                 .containsEntry("route", "CLARIFY");
     }
@@ -364,15 +369,14 @@ class AgentPipelineServiceRouteTest {
 
         assertThat(events).isNotNull();
         assertThat(events).extracting(event -> event.get("stage"))
-                .containsExactly("budget_check", "answer_final", "done");
+                .containsExactly("run_metadata", "budget_check", "answer_final", "done");
         var recorded = ArgumentCaptor.forClass(PlatformEvent.class);
         verify(eventRecorder, org.mockito.Mockito.atLeastOnce()).record(recorded.capture());
         Object finalPayload = events.stream().filter(event -> "answer_final".equals(event.get("stage")))
                 .findFirst().orElseThrow().get("payload");
         assertThat(recorded.getAllValues()).anySatisfy(event -> {
             assertThat(event.eventType()).isEqualTo("answer.generated");
-            assertThat(event.payload())
-                    .containsEntry("answer", ((Map<?, ?>) finalPayload).get("answer"))
+            assertThat(event.payload()).containsEntry("answer", ((Map<?, ?>) finalPayload).get("answer"))
                     .containsEntry("question", "recent visitors?");
             assertThat(event.status()).isEqualTo("budget_exhausted");
         });
@@ -399,7 +403,8 @@ class AgentPipelineServiceRouteTest {
                 "PUBLIC_ESTIMATE", List.of("LABEL_AS_ESTIMATE"), null);
         when(routePlanner.plan(any(IntentRequest.class)))
                 .thenReturn(AgentRouteDecision.knowledge(intent));
-        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
         when(generationService.streamGenerate(anyString(), anyString()))
                 .thenReturn(reactor.core.publisher.Flux.just("A qualified public-context estimate."));
 
@@ -427,6 +432,68 @@ class AgentPipelineServiceRouteTest {
                 .contains("does not prohibit using facts intentionally published")
                 .contains("Evidence Fidelity")
                 .contains("never substitute model memory");
+    }
+
+    @Test
+    void personalHistoryFollowUpKeepsRelationshipAndCountryThroughRetrievalAndGeneration() {
+        String normalized = "Yuqi travel history cities visited in the United States";
+        IntentResult intent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.97, "zh", normalized,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        when(routePlanner.plan(any(IntentRequest.class))).thenReturn(AgentRouteDecision.knowledge(intent));
+        when(contextLoader.load(any(), any())).thenReturn(PlannerContext.empty(List.of(
+                Map.of("role", "user", "content", "郭育奇去过哪些地方？"))));
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("公开证据暂不足以列出城市。"));
+
+        var events = service.runPipeline(AgentStreamRequest.builder()
+                .sessionId("travel-session").conversationId("travel-conversation")
+                .question("美国哪些城市？").build()).collectList().block();
+
+        assertThat(events).isNotNull();
+        ArgumentCaptor<String> query = ArgumentCaptor.forClass(String.class);
+        verify(knowledgeClient).search(query.capture(), eq(6));
+        assertThat(query.getValue()).contains("美国哪些城市？", normalized);
+        ArgumentCaptor<String> system = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
+        verify(generationService).streamGenerate(system.capture(), user.capture());
+        assertThat(user.getValue()).contains("郭育奇去过哪些地方？", normalized,
+                "Resolved Search Intent (not evidence)", "latest explicit question takes precedence");
+        assertThat(system.getValue()).contains("not visitor analytics", "distinguish cities from states",
+                "does not mean an event never happened", "requires login",
+                "Previous assistant replies", "OWNER_QA", "does not establish a number");
+        verify(intentOrchestrator, never()).handlePreclassified(any(), any());
+    }
+
+    @Test
+    void interviewEvidenceRetainsAttributionAndSourceWithoutTreatingMentionsAsInterviews() {
+        IntentResult intent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.97, "en", "Yuqi companies interviewed at",
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        when(routePlanner.plan(any(IntentRequest.class))).thenReturn(AgentRouteDecision.knowledge(intent));
+        String evidence = "I interviewed at Example Corp. Example Labs was only a comparison.";
+        String url = "https://www.yuqi.site/life-blog/interview-test";
+        var hit = KnowledgeSearchResponse.ChunkHit.builder().chunkId("interview-test-0")
+                .documentId("interview-test").title("Interview journal").content(evidence)
+                .score(0.9).sourceType("LIFE_BLOG").sourceId("interview-test").sourceUrl(url).build();
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of(hit)).build());
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("According to his journal, Example Corp."));
+
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("interview-session")
+                .question("Which companies did Yuqi interview with?").build()).collectList().block();
+
+        assertThat(events).isNotNull();
+        ArgumentCaptor<String> system = ArgumentCaptor.forClass(String.class);
+        ArgumentCaptor<String> user = ArgumentCaptor.forClass(String.class);
+        verify(generationService).streamGenerate(system.capture(), user.capture());
+        assertThat(user.getValue()).contains(evidence, "Source URL: " + url);
+        assertThat(system.getValue()).contains("Interviewed at, applied to,", "distinct claims",
+                "not evidence of participation", "not to the current visitor");
+        assertThat(events).extracting(event -> event.get("stage")).contains("related_links", "done");
     }
 
     @Test
@@ -481,6 +548,32 @@ class AgentPipelineServiceRouteTest {
         verify(generationService).streamGenerate(anyString(), promptCaptor.capture());
         assertThat(promptCaptor.getValue())
                 .contains("Source URL: https://www.yuqi.site/work-single/project-1");
+        var recorded = ArgumentCaptor.forClass(PlatformEvent.class);
+        verify(eventRecorder, org.mockito.Mockito.atLeastOnce()).record(recorded.capture());
+        var retrieval = recorded.getAllValues().stream()
+                .filter(event -> "retrieval.completed".equals(event.eventType())).findFirst().orElseThrow();
+        assertThat(retrieval.payload()).containsEntry("queryId", "query-1");
+        assertThat(retrieval.payload().get("sources").toString()).contains("project-1-0", "Portfolio Platform");
+    }
+
+    @Test
+    void outputVerificationRunsOffEventLoopAndUnavailableCheckDoesNotWasteRewrite() {
+        when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.generalChat(null, ""));
+        when(generationService.streamGenerate(anyString(), anyString())).thenReturn(
+                reactor.core.publisher.Flux.just("A general explanation.")
+                        .publishOn(reactor.core.scheduler.Schedulers.parallel()));
+        when(safetyService.checkOutputWithContext(any(), any())).thenAnswer(invocation -> {
+            assertThat(reactor.core.scheduler.Schedulers.isInNonBlockingThread()).isFalse();
+            return SafetyCheckResult.builder().verdict(SafetyVerdict.WARN).category("UNKNOWN")
+                    .reason("Safety classifier unavailable").build();
+        });
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("scheduler-test")
+                .question("Explain a queue").build()).collectList().block(java.time.Duration.ofSeconds(10));
+        assertThat(events).extracting(event -> event.get("stage")).contains("answer_final", "done");
+        verify(safetyService, times(1)).checkOutputWithContext(any(), any());
+        verify(generationService, never()).generate(anyString(), anyString());
+        assertThat(events.toString()).doesNotContain("A general explanation.", "answer_delta");
+        assertThat(events.toString()).contains("could not verify");
     }
 
     @Test
@@ -491,7 +584,8 @@ class AgentPipelineServiceRouteTest {
                 "STANDARD", List.of(), GenerationTier.DEEP, "正在搜索公开资料");
         when(routePlanner.plan(any(IntentRequest.class)))
                 .thenReturn(AgentRouteDecision.generalChat(intent, "普通模式的简短回答"));
-        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
         when(generationService.streamGenerateGrounded(anyString(), anyString()))
                 .thenReturn(reactor.core.publisher.Flux.just(
                         new GeminiGenerationService.GroundedChunk(
@@ -533,6 +627,24 @@ class AgentPipelineServiceRouteTest {
     }
 
     @Test
+    void standardGeneralQuestionUsesGeneratorRatherThanPlannerCannedMessage() {
+        IntentResult intent = new IntentResult(IntentType.GENERAL_CHAT, null, 0.95, "en", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenReturn(AgentRouteDecision.generalChat(intent, "I only help with the portfolio."));
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("A transaction groups operations atomically."));
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("general-test")
+                .question("Explain a database transaction").build()).collectList().block();
+        assertThat(events).extracting(event -> event.get("stage")).contains("generating", "answer_final", "done");
+        verify(generationService).streamGenerate(anyString(), anyString());
+        assertThat(events.toString()).doesNotContain("I only help with the portfolio.");
+        verify(knowledgeClient, never()).search(anyString(), anyInt());
+    }
+
+    @Test
     void costGuardrailDowngradesDeepResearchToStandardGeneration() {
         IntentResult intent = new IntentResult(
                 IntentType.GENERAL_CHAT, null, 0.92, "zh", null,
@@ -542,7 +654,8 @@ class AgentPipelineServiceRouteTest {
                 .thenReturn(AgentRouteDecision.generalChat(intent, "普通模式的简短回答"));
         when(chatBudgetService.evaluateHighCostPath())
                 .thenReturn(ChatBudgetService.HighCostPathDecision.denied("daily_budget_near_limit", null));
-        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
         when(generationService.streamGenerate(anyString(), anyString()))
                 .thenReturn(reactor.core.publisher.Flux.just("标准模型回答。"));
 
@@ -594,7 +707,8 @@ class AgentPipelineServiceRouteTest {
                 "正在基于公开信息估算...");
         when(routePlanner.plan(any(IntentRequest.class)))
                 .thenReturn(AgentRouteDecision.knowledge(intent));
-        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
         when(generationService.streamGenerate(anyString(), anyString()))
                 .thenReturn(reactor.core.publisher.Flux.just("根据公开履历，估计年薪约为某个区间。"));
 
@@ -620,13 +734,14 @@ class AgentPipelineServiceRouteTest {
                 List.of("LABEL_AS_ESTIMATE"), null);
         when(routePlanner.plan(any(IntentRequest.class)))
                 .thenReturn(AgentRouteDecision.knowledge(intent));
-        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
         when(generationService.streamGenerate(anyString(), anyString()))
                 .thenReturn(reactor.core.publisher.Flux.just("他的真实工资是X万。"));
 
         SafetyCheckResult warn = SafetyCheckResult.builder()
                 .verdict(SafetyVerdict.WARN).checkType("output_ctx")
-                .reason("implies private record access").build();
+                .category("POLICY_VIOLATION").reason("implies private record access").build();
         SafetyCheckResult passAfter = SafetyCheckResult.builder()
                 .verdict(SafetyVerdict.PASS).checkType("output_ctx").build();
         when(safetyService.checkOutputWithContext(any(OutputSafetyContext.class), any()))
@@ -658,13 +773,14 @@ class AgentPipelineServiceRouteTest {
                 "STANDARD", List.of(), null);
         when(routePlanner.plan(any(IntentRequest.class)))
                 .thenReturn(AgentRouteDecision.knowledge(intent));
-        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
         when(generationService.streamGenerate(anyString(), anyString()))
                 .thenReturn(reactor.core.publisher.Flux.just("Here is the exact private salary record."));
 
         SafetyCheckResult warn = SafetyCheckResult.builder()
                 .verdict(SafetyVerdict.WARN).checkType("output_ctx")
-                .reason("claims private record").build();
+                .category("POLICY_VIOLATION").reason("claims private record").build();
         SafetyCheckResult block = SafetyCheckResult.builder()
                 .verdict(SafetyVerdict.BLOCK).checkType("output_ctx")
                 .reason("still claims private record").build();
@@ -685,5 +801,132 @@ class AgentPipelineServiceRouteTest {
         Map<String, Object> payload = (Map<String, Object>) finalEvent.get("payload");
         // Should contain a refusal, not the private content
         assertThat(payload.get("answer").toString()).contains("apologize");
+        assertThat(events.toString()).doesNotContain("exact private salary record", "Still contains private data", "answer_delta");
+    }
+
+    @Test
+    void retrievalOutageIsNotZeroHitsAndDoesNotGenerateOwnerFacts() {
+        when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.knowledge(null));
+        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(null);
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("retrieval-outage")
+                .question("Where did the owner study?").build()).collectList().block(java.time.Duration.ofSeconds(10));
+        assertThat(events.toString()).contains("knowledge service is temporarily unavailable");
+        assertThat(events).extracting(event -> event.get("stage")).contains("done").doesNotContain("answer_delta");
+        verify(generationService, never()).streamGenerate(anyString(), anyString());
+        var recorded = ArgumentCaptor.forClass(PlatformEvent.class);
+        verify(eventRecorder, org.mockito.Mockito.atLeastOnce()).record(recorded.capture());
+        assertThat(recorded.getAllValues()).anySatisfy(event -> {
+            assertThat(event.eventType()).isEqualTo("retrieval.completed");
+            assertThat(event.status()).isEqualTo("unavailable");
+            assertThat(event.payload()).containsEntry("zeroHit", false);
+        });
+    }
+
+    @Test
+    void interruptedGenerationDoesNotPublishPartialAnswerOrProviderDetails() {
+        when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.generalChat(null, ""));
+        when(generationService.streamGenerate(anyString(), anyString())).thenReturn(
+                reactor.core.publisher.Flux.concat(reactor.core.publisher.Flux.just("Unverified partial draft"),
+                        reactor.core.publisher.Flux.error(new IllegalStateException("private-provider-detail"))));
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("generation-outage")
+                .question("Explain a queue").build()).collectList().block(java.time.Duration.ofSeconds(10));
+        assertThat(events.toString()).doesNotContain("Unverified partial draft", "private-provider-detail", "answer_delta");
+        assertThat(events.toString()).contains("could not be completed");
+        assertThat(events).extracting(event -> event.get("stage")).contains("answer_final", "done");
+        verify(safetyService, never()).checkOutputWithContext(any(), any());
+    }
+
+    @Test
+    void groundingCorrectionUsesOriginalEvidenceAndPublishesOnlyCheckedAnswer() {
+        when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.knowledge(null));
+        var hit = KnowledgeSearchResponse.ChunkHit.builder().chunkId("synthetic-education")
+                .content("The owner graduated from Example University.").title("Reviewed education").build();
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of(hit)).build());
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("The owner graduated from Wrong University."));
+        when(safetyService.checkOutputWithContext(any(), any())).thenReturn(
+                SafetyCheckResult.builder().verdict(SafetyVerdict.WARN).category("UNGROUNDED")
+                        .reason("University contradicts source").build(),
+                SafetyCheckResult.builder().verdict(SafetyVerdict.PASS).build());
+        when(generationService.generate(anyString(), anyString())).thenReturn("The owner graduated from Example University.");
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("grounding-correction")
+                .question("Where did the owner study?").build()).collectList().block(java.time.Duration.ofSeconds(10));
+        assertThat(events.toString()).doesNotContain("Wrong University", "answer_delta").contains("Example University");
+        var checks = ArgumentCaptor.forClass(OutputSafetyContext.class);
+        verify(safetyService, times(2)).checkOutputWithContext(checks.capture(), any());
+        assertThat(checks.getAllValues()).allSatisfy(context ->
+                assertThat(context.groundingEvidence()).contains(hit.content()).doesNotContain("Wrong University"));
+        var rewrite = ArgumentCaptor.forClass(String.class);
+        verify(generationService).generate(anyString(), rewrite.capture());
+        assertThat(rewrite.getValue()).contains(hit.content(), "Where did the owner study?", "Correct or remove unsupported claims");
+    }
+
+    @Test
+    void resolvedAttachmentIsIncludedInGenerationAndVerification() {
+        when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.generalChat(null, ""));
+        when(attachmentContextService.resolve(any(), anyString(), any()))
+                .thenReturn(new AttachmentContextService.AttachmentContext("Synthetic document: the total is 42.", List.of(), true));
+        when(generationService.streamGenerate(anyString(), anyString())).thenReturn(reactor.core.publisher.Flux.just("The total is 42."));
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("attachment-evidence")
+                .question("What is the total in my document?").build()).collectList().block(java.time.Duration.ofSeconds(10));
+        assertThat(events.toString()).contains("The total is 42.");
+        var prompt = ArgumentCaptor.forClass(String.class);
+        verify(generationService).streamGenerate(anyString(), prompt.capture());
+        assertThat(prompt.getValue()).contains("Synthetic document: the total is 42.");
+        var check = ArgumentCaptor.forClass(OutputSafetyContext.class);
+        verify(safetyService).checkOutputWithContext(check.capture(), any());
+        assertThat(check.getValue().groundingEvidence()).contains("Synthetic document: the total is 42.");
+    }
+
+    @Test
+    void cancellingResponseCancelsUpstreamGeneration() throws Exception {
+        when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.generalChat(null, ""));
+        var subscribed = new java.util.concurrent.CountDownLatch(1);
+        var cancelled = new java.util.concurrent.CountDownLatch(1);
+        when(generationService.streamGenerate(anyString(), anyString())).thenReturn(
+                reactor.core.publisher.Flux.<String>never().doOnSubscribe(ignored -> subscribed.countDown())
+                        .doOnCancel(cancelled::countDown));
+        var subscription = service.runPipeline(AgentStreamRequest.builder().sessionId("cancel-generation")
+                .question("Explain a queue").build()).subscribe();
+        try {
+            assertThat(subscribed.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+        } finally {
+            subscription.dispose();
+        }
+        assertThat(cancelled.await(5, java.util.concurrent.TimeUnit.SECONDS)).isTrue();
+    }
+
+    @Test
+    void stillUngroundedAfterOneRewriteDoesNotPublish() {
+        when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.generalChat(null, ""));
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("Invented owner fact"));
+        when(safetyService.checkOutputWithContext(any(), any())).thenReturn(
+                SafetyCheckResult.builder().verdict(SafetyVerdict.WARN).category("UNGROUNDED")
+                        .reason("Not in the evidence").build());
+        when(generationService.generate(anyString(), anyString())).thenReturn("Another invented owner fact");
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("rewrite-failed")
+                .question("Explain the owner's work").build()).collectList().block(java.time.Duration.ofSeconds(10));
+        assertThat(events.toString()).doesNotContain("Invented owner fact", "Another invented owner fact", "answer_delta");
+        assertThat(events.toString()).contains("could not verify");
+        verify(generationService, times(1)).generate(anyString(), anyString());
+        verify(safetyService, times(2)).checkOutputWithContext(any(), any());
+    }
+
+    @Test
+    void sourceOnlyResearchResponseDoesNotCountAsAnAnswer() {
+        IntentResult intent = new IntentResult(IntentType.GENERAL_CHAT, null, 0.95, "en", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "STANDARD", List.of(), GenerationTier.DEEP, "Searching");
+        when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.generalChat(intent, ""));
+        when(generationService.streamGenerateGrounded(anyString(), anyString())).thenReturn(
+                reactor.core.publisher.Flux.just(new GeminiGenerationService.GroundedChunk("", List.of(
+                        new GeminiGenerationService.GroundedSource("https://example.com", "Example")))));
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("empty-research")
+                .question("Research queues").build()).collectList().block(java.time.Duration.ofSeconds(10));
+        assertThat(events.toString()).contains("could not be completed");
+        assertThat(events).extracting(event -> event.get("stage")).contains("answer_final", "done");
+        verify(safetyService, never()).checkOutputWithContext(any(), any());
     }
 }

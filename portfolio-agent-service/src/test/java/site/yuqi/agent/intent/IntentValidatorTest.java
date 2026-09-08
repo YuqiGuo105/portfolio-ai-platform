@@ -214,4 +214,27 @@ class IntentValidatorTest {
         assertThat(v.getStatus()).isEqualTo(IntentValidator.Status.CLARIFY);
         assertThat(v.getMessage()).contains("Kafka");
     }
+
+    @Test
+    void rejectsInvalidConfidenceAndMissingIntentBeforeRouting() {
+        for (double confidence : new double[] {Double.NaN, Double.POSITIVE_INFINITY, -0.1, 1.1}) {
+            IntentResult intent = new IntentResult(IntentType.GENERAL_CHAT, null, confidence,
+                    "en", null, Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+            assertThat(validator.validate(intent).getStatus()).isEqualTo(IntentValidator.Status.REJECT);
+        }
+        assertThat(validator.validate(null).getStatus()).isEqualTo(IntentValidator.Status.REJECT);
+        IntentResult missing = new IntentResult(null, null, 0.9,
+                "en", null, Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        assertThat(validator.validate(missing).getStatus()).isEqualTo(IntentValidator.Status.REJECT);
+    }
+
+    @Test
+    void rejectsToolSmuggledIntoResponseIntent() {
+        for (IntentType type : List.of(IntentType.GENERAL_CHAT, IntentType.KNOWLEDGE_QA,
+                IntentType.WEB_GUIDE, IntentType.HANDOFF_REQUESTED)) {
+            IntentResult intent = new IntentResult(type, "admin.publish_content", 0.99,
+                    "en", null, Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+            assertThat(validator.validate(intent).getStatus()).isEqualTo(IntentValidator.Status.REJECT);
+        }
+    }
 }

@@ -26,6 +26,7 @@ public class HybridSearchService {
     private final OpenSearchKnowledgeRepository repository;
     private final EmbeddingClient embeddingClient;
     private final KnowledgeSourceUrlResolver sourceUrlResolver;
+    private final SupabaseCurrentKnowledgeSearch currentKnowledge;
 
     @Value("${knowledge.search.default-top-k:8}")
     private int defaultTopK;
@@ -35,7 +36,11 @@ public class HybridSearchService {
 
     public KnowledgeSearchResponse search(KnowledgeSearchRequest request) {
         long start = System.currentTimeMillis();
-        int topK = request.topK() > 0 ? request.topK() : defaultTopK;
+        int topK = Math.min(20, request.topK() > 0 ? request.topK() : defaultTopK);
+        if (currentKnowledge.isEnabled()) {
+            // Fail visibly instead of silently falling back to stale legacy personal facts.
+            return currentKnowledge.search(request.query(), topK);
+        }
 
         // 1. BM25 keyword search
         List<KnowledgeChunk> bm25Results = repository.keywordSearch(
@@ -45,7 +50,7 @@ public class HybridSearchService {
         // available if the external embedding provider is temporarily down.
         List<KnowledgeChunk> vectorResults;
         try {
-            float[] queryEmbedding = embeddingClient.embed(request.query());
+            float[] queryEmbedding = embeddingClient.embedQuery(request.query(), embeddingClient.dimension());
             vectorResults = repository.vectorSearch(
                     queryEmbedding, request.visibility(), request.locale(), topK * 2);
         } catch (RuntimeException e) {
@@ -84,6 +89,7 @@ public class HybridSearchService {
 
         return KnowledgeSearchResponse.builder()
                 .queryId(UUID.randomUUID().toString())
+                .retrievalStrategy(contentProjectionFallback ? "opensearch_content_fallback" : "hybrid_bm25_knn")
                 .results(hits)
                 .latencyMs(latencyMs)
                 .build();
