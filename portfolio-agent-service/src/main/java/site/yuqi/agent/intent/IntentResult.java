@@ -14,7 +14,7 @@ import java.util.Set;
  * @param targetTool            the chosen tool name; MUST exist in
  *                              {@link ToolRegistry} after validation
  * @param confidence            classifier-reported confidence in [0,1]
- * @param language              ISO 639-1 code, preserved from user input
+ * @param language              response language tag selected from the current utterance and explicit language requests
  * @param normalizedQuery       English paraphrase suitable for internal
  *                              search (nullable)
  * @param entities              extracted entities; values are model-provided

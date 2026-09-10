@@ -44,6 +44,34 @@ class SafetyServiceTest {
     }
 
     @Test
+    void preservesLanguageMismatchForBoundedRewrite() throws Exception {
+        SafetyCheckResult result = service.parseModelResult("""
+                {"verdict":"WARN","category":"LANGUAGE_MISMATCH","confidence":0.99,
+                 "reason":"The current question requires Chinese, but the answer is English.","constraints":[]}
+                """, "output_ctx");
+        assertThat(result.verdict()).isEqualTo(SafetyVerdict.WARN);
+        assertThat(result.category()).isEqualTo("LANGUAGE_MISMATCH");
+        String prompt = (String) ReflectionTestUtils.getField(SafetyService.class, "CONTEXT_AWARE_OUTPUT_PROMPT");
+        assertThat(prompt).contains("Language mismatch alone is never BLOCK", "explicit output-language request",
+                "Prioritize safety/grounding violations over language mismatches");
+    }
+
+    @Test
+    void aFailedLanguageCheckCannotReturnPassOrOverrideASafetyBlock() throws Exception {
+        String json = """
+                {"verdict":"%s","category":"%s","confidence":0.99,
+                 "reason":"Review required","constraints":[],"languageMatches":false,"responseLanguage":"zh"}
+                """;
+        var inconsistent = service.parseModelResult(json.formatted("PASS", "SAFE"), "output_ctx");
+        assertThat(inconsistent.verdict()).isEqualTo(SafetyVerdict.WARN);
+        assertThat(inconsistent.category()).isEqualTo("LANGUAGE_MISMATCH");
+        assertThat(inconsistent.reason()).contains("Required language: zh");
+        var blocked = service.parseModelResult(json.formatted("BLOCK", "PROTECTED_DATA_ACCESS"), "output_ctx");
+        assertThat(blocked.verdict()).isEqualTo(SafetyVerdict.BLOCK);
+        assertThat(blocked.category()).isEqualTo("PROTECTED_DATA_ACCESS");
+    }
+
+    @Test
     void downgradesLowConfidenceInputBlockToWarn() throws Exception {
         SafetyCheckResult raw = service.parseModelResult("""
                 {

@@ -32,6 +32,29 @@ class ResponseLanguageServiceTest {
     }
 
     @Test
+    void englishTargetDoesNotBypassLocalization() {
+        GeminiGenerationService generationService = mock(GeminiGenerationService.class);
+        ResponseLanguageService service = new ResponseLanguageService(generationService);
+        when(generationService.generate(anyString(), anyString())).thenReturn("He is a software engineer.");
+
+        assertThat(service.alignToLanguage("en", "他是一名软件工程师。"))
+                .isEqualTo("He is a software engineer.");
+        verify(generationService).generate(contains("candidate's language is not the target"), contains("en"));
+    }
+
+    @Test
+    void explicitOutputLanguageAndMixedInputArePartOfLocalizationContract() {
+        GeminiGenerationService generationService = mock(GeminiGenerationService.class);
+        ResponseLanguageService service = new ResponseLanguageService(generationService);
+        when(generationService.generate(anyString(), anyString())).thenReturn("He is a software engineer.");
+
+        service.alignToInputLanguage("他在 Goldman Sachs 做什么？请用英文回答。", "他是一名软件工程师。");
+        verify(generationService).generate(contains("explicit output-language request"),
+                contains("他在 Goldman Sachs 做什么？请用英文回答。"));
+        verify(generationService).generate(contains("Do not default mixed-language questions to English"), anyString());
+    }
+
+    @Test
     void keepsOriginalAnswerWhenAlignmentFails() {
         GeminiGenerationService generationService = mock(GeminiGenerationService.class);
         ResponseLanguageService service = new ResponseLanguageService(generationService);

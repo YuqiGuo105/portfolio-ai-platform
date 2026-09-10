@@ -947,6 +947,67 @@ class AgentPipelineServiceRouteTest {
     }
 
     @Test
+    void currentTurnLanguageReachesGenerationEvenWithEnglishEvidenceAndHistory() {
+        String question = "介绍一下 Yuqi Guo，他在 Goldman Sachs 做什么？";
+        String answer = "Yuqi Guo 是高盛（Goldman Sachs）的软件工程师。";
+        var intent = new IntentResult(IntentType.KNOWLEDGE_QA, null, 0.99, "zh",
+                "Yuqi Guo profession employer", Map.of(), RiskLevel.READ_ONLY, false, List.of(), null);
+        when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.knowledge(intent));
+        when(contextLoader.load(any(), any())).thenReturn(PlannerContext.empty(List.of(
+                Map.of("role", "assistant", "content", "Earlier answer was in English."))));
+        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(KnowledgeSearchResponse.builder()
+                .results(List.of(KnowledgeSearchResponse.ChunkHit.builder()
+                        .content("Yuqi Guo is a Software Engineer at Goldman Sachs.").build())).build());
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just(answer));
+
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("language-current-turn")
+                .question(question).build()).collectList().block(java.time.Duration.ofSeconds(10));
+        var system = ArgumentCaptor.forClass(String.class);
+        var user = ArgumentCaptor.forClass(String.class);
+        verify(generationService).streamGenerate(system.capture(), user.capture());
+        assertThat(system.getValue()).contains("Response language selected for this turn: zh",
+                "English names", "explicit output-language request");
+        assertThat(user.getValue()).contains("Earlier answer was in English.", "Yuqi Guo profession employer")
+                .endsWith(question);
+        assertThat(events.toString()).contains(answer);
+        verify(generationService, never()).generate(anyString(), anyString());
+        verify(responseLanguageService, never()).alignToInputLanguage(anyString(), anyString());
+    }
+
+    @Test
+    void languageMismatchIsRepairedBeforePublishingOrSavingAnswer() {
+        String question = "过玉琪的介绍，他的职业是什么？他在哪里工作？";
+        String draft = "Yuqi Guo is a Software Engineer at Goldman Sachs.";
+        String answer = "郭育奇（Yuqi Guo）是一名软件工程师，目前在高盛（Goldman Sachs）工作。";
+        when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.knowledge(null));
+        when(knowledgeClient.search(anyString(), anyInt())).thenReturn(KnowledgeSearchResponse.builder()
+                .results(List.of(KnowledgeSearchResponse.ChunkHit.builder().content(draft).build())).build());
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just(draft));
+        when(safetyService.checkOutputWithContext(any(), any())).thenReturn(
+                SafetyCheckResult.builder().verdict(SafetyVerdict.WARN).category("LANGUAGE_MISMATCH")
+                        .reason("Use Chinese for the current Chinese question").build(),
+                SafetyCheckResult.builder().verdict(SafetyVerdict.PASS).build());
+        when(generationService.generate(anyString(), anyString())).thenReturn(answer);
+
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("language-repair")
+                .conversationId("conv-language-repair").question(question).build())
+                .collectList().block(java.time.Duration.ofSeconds(10));
+        assertThat(events.toString()).contains(answer).doesNotContain(draft, "answer_delta");
+        var system = ArgumentCaptor.forClass(String.class);
+        var user = ArgumentCaptor.forClass(String.class);
+        verify(generationService).generate(system.capture(), user.capture());
+        assertThat(system.getValue()).contains("Response language contract", "Preserve supported facts");
+        assertThat(user.getValue()).contains(question, "even if the draft uses a different language");
+        var checks = ArgumentCaptor.forClass(OutputSafetyContext.class);
+        verify(safetyService, times(2)).checkOutputWithContext(checks.capture(), any());
+        assertThat(checks.getAllValues().get(1).candidateResponse()).isEqualTo(answer);
+        verify(memoryWriter).writeTurnPair(eq("conv-language-repair"), eq(question), eq(answer),
+                eq("KNOWLEDGE_QA"), org.mockito.ArgumentMatchers.<Map<String, Object>>isNull());
+    }
+
+    @Test
     void sourceOnlyResearchResponseDoesNotCountAsAnAnswer() {
         IntentResult intent = new IntentResult(IntentType.GENERAL_CHAT, null, 0.95, "en", null,
                 Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,

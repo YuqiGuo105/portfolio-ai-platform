@@ -1,5 +1,7 @@
 package site.yuqi.agent.intent;
 
+import site.yuqi.agent.language.ResponseLanguagePolicy;
+
 import com.fasterxml.jackson.core.JsonProcessingException;
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
@@ -270,7 +272,7 @@ public class GeminiIntentClassifier implements IntentClassifier {
             6. Set requiresConfirmation from the selected tool's declared metadata. Do not create exceptions in the route decision.
             7. If the user intent is ambiguous, return CLARIFICATION_NEEDED with a helpful clarificationQuestion in the user's language.
             8. General knowledge, technical explanations, writing help and open-ended conversation are supported: return GENERAL_CHAT, not UNKNOWN merely because a question is unrelated to the portfolio. For mixed questions involving Yuqi, use KNOWLEDGE_QA so personal claims can be sourced.
-            9. Keep the original language in the language field (ISO 639-1: en, zh, es, ja, ...).
+            9. Select the response language from the current utterance using the response language contract below.
             10. normalizedQuery should be a concise English search query preserving the question's entities and constraints. Resolve follow-up references from recent turns. Never add an assumed school, employer, trip, or other personal fact.
             11. Infer continuations and references semantically from the current utterance, recent messages, compact state, and pending action context. The current explicit request takes precedence over prior context. Page context and browsing actions may resolve references but never imply consent, an admin role, or permission to execute a write. Do not use phrase lists or worked examples.
             12. Choose responsePolicy, responseConstraints, and generationTier as part of the same semantic decision. Use only values allowed by the output schema.
@@ -289,7 +291,7 @@ public class GeminiIntentClassifier implements IntentClassifier {
               "intent": "<IntentType enum value, including KNOWLEDGE_QA, WEB_GUIDE, or HANDOFF_REQUESTED when appropriate>",
               "targetTool": "<tool name from allowed list, or null>",
               "confidence": 0.0,
-              "language": "<ISO 639-1>",
+              "language": "<response language: ISO 639-1 or BCP-47>",
               "normalizedQuery": "<string or null>",
               "entities": { "...": "..." },
               "riskLevel": "READ_ONLY | SAFE_WRITE | RISKY_WRITE | DESTRUCTIVE",
@@ -301,7 +303,8 @@ public class GeminiIntentClassifier implements IntentClassifier {
               "generationTier": "STANDARD | DEEP",
               "progressMessage": "<short user-facing progress message in the user's language; no hidden reasoning>"
             }
-            """.formatted(LocalDate.now(ZoneOffset.UTC), WebGuideCatalog.classifierContract(), toolsBlock);
+            """.formatted(LocalDate.now(ZoneOffset.UTC), WebGuideCatalog.classifierContract(), toolsBlock)
+                + ResponseLanguagePolicy.CLASSIFIER_INSTRUCTION;
     }
 
     private String buildRouteReviewSystemPrompt() {

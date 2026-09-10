@@ -35,7 +35,7 @@ public final class WebGuideCatalog {
                 - For WEB_GUIDE use targetTool=null, riskLevel=READ_ONLY, requiresConfirmation=false, and generationTier=STANDARD.
                 - Put guideTargetKeys in entities as an ordered subset of these keys: %s.
                 - Put guideStartMode in entities as START_NOW or OFFER. Choose it from the user's intent and conversational context.
-                - Put guideResponseMessage in entities as a short user-facing message written in the same language as the current user input.
+                - Put guideResponseMessage in entities as a short user-facing message in the selected response language, honoring explicit output-language requests.
                 - Do not create selectors, URLs, HTML, scripts, or target keys outside this catalog.
                 """.formatted(String.join(", ", allowedKeys()));
     }
