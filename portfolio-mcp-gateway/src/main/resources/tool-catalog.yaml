@@ -46,6 +46,72 @@ tools:
       - { name: limit, type: integer, required: false }
     endpoint: { target: knowledge, method: POST, path: /internal/v1/knowledge/public/search }
 
+  - name: knowledge.list
+    mode: READ
+    description: Search the private knowledge base by text and inspect canonical owner notes or generated RAG chunks. Administrator login required. Defaults to owner-managed records; indexed chunks are read-only.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    confirmRequired: false
+    parameters:
+      - { name: filter, type: object, required: false, description: "{query?: string (max 300), scope?: OWNED|INDEXED|ALL, status?: ALL|DRAFT|ACTIVE|ARCHIVED|SUPERSEDED|LEGACY}. Defaults to OWNED/ALL." }
+      - { name: page, type: object, required: false, description: "{size?: integer 1-100 (default 25), offset?: integer 0-100000 (default 0)}." }
+    endpoint: { target: admin, method: POST, path: /api/admin/knowledge/search }
+
+  - name: knowledge.batch_get
+    mode: READ
+    description: Read 1-25 private knowledge records in one bounded batch. Returns per-ID found flags and records with indexing state; missing IDs do not hide successful reads. Administrator login required.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    confirmRequired: false
+    parameters:
+      - { name: ids, type: array, required: true, description: "1-25 UUID strings from knowledge.list. Duplicates are read once." }
+    endpoint: { target: admin, method: POST, path: /api/admin/knowledge/batch-get }
+
+  - name: knowledge.get
+    mode: READ
+    description: Read a private knowledge record, its revision, provenance and indexing job status. Use the returned revision as expectedRevision for changes. Never expose private answers to public callers.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    confirmRequired: false
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36, description: "Knowledge record UUID." }
+    endpoint: { target: admin, method: GET, path: "/api/admin/knowledge/{id}" }
+
+  - name: knowledge.create
+    mode: WRITE
+    description: Create an owner-managed knowledge record. Defaults to a private DRAFT. ACTIVE plus public explicitly approves public answers and queues Gemini embedding; source text stays admin-only. Confirm the exact content and visibility first. Poll knowledge.get for indexing completion; saving is not indexing success.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: document, type: object, required: true, description: "{title: string (1-240), question?: string (max 1000), content: string (1-20000)}." }
+      - { name: policy, type: object, required: false, description: "{status?: DRAFT|ACTIVE|ARCHIVED, answerVisibility?: private|public}. Defaults DRAFT/private. ACTIVE requires public." }
+    endpoint: { target: admin, method: POST, path: /api/admin/knowledge }
+
+  - name: knowledge.update
+    mode: WRITE
+    description: Replace an owner-managed knowledge record after reading knowledge.get. Requires its exact expectedRevision; rejects concurrent edits. Invalidates old answer chunks and queues a new RAG job if ACTIVE/public. Gemini receives approved text for embedding. Generated chunks must be edited at their source instead. Confirm content and visibility before executing.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+      - { name: preconditions, type: object, required: true, description: "{revision: string}, exactly the 32-character revision returned by knowledge.get." }
+      - { name: document, type: object, required: true, description: "{title: string (1-240), question?: string (max 1000), content: string (1-20000)}. Full replacement, not a patch." }
+      - { name: policy, type: object, required: true, description: "{status: DRAFT|ACTIVE|ARCHIVED, answerVisibility: private|public}. ACTIVE requires public." }
+    endpoint: { target: admin, method: PUT, path: "/api/admin/knowledge/{id}" }
+
+  - name: knowledge.delete
+    mode: WRITE
+    description: Delete an owner-managed knowledge record and its derived answer chunks. An audit snapshot is retained. Requires explicit user confirmation and expectedRevision from knowledge.get. In-flight stale indexing cannot recreate deleted knowledge.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+      - { name: expectedRevision, type: string, required: true, minLength: 32, maxLength: 32 }
+    endpoint: { target: admin, method: DELETE, path: "/api/admin/knowledge/{id}" }
+
   - name: operation.get_status
     mode: READ
     description: Get durable status for your MCP write operation. UNKNOWN means verify downstream effects before any retry. SUCCEEDED confirms the tool call, not asynchronous delivery.
