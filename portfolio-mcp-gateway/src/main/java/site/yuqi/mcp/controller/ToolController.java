@@ -181,6 +181,8 @@ public class ToolController {
         }
         args.put("_mcpActor", principal);
         args.put("_mcpTool", tool.getName());
+        // Only trusted service headers supply role context; overwrite caller control arguments.
+        args.put("_mcpRole", role == null ? "VIEWER" : role);
         if (idempotencyKey != null) args.put("_idempotencyKey",idempotencyKey);
         if (claim != null) args.put("_operationId",claim.get("operationId"));
         if (mcpClient != null) args.put("_mcpClient", mcpClient);
@@ -197,7 +199,7 @@ public class ToolController {
             }
             auditService.logInvocation(tool, actor, args, idempotencyKey,
                     "ok", 200, latency, null);
-            return ResponseEntity.ok(result);
+            return ResponseEntity.ok().header(HttpHeaders.CACHE_CONTROL, "no-store").body(result);
         } catch (AdapterException e) {
             long latency = System.currentTimeMillis() - start;
             auditService.logInvocation(tool, actor, args, idempotencyKey,

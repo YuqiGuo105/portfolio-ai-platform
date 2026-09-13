@@ -849,6 +849,37 @@ tools:
       method: GET
       path: /api/public/visits/summary
 
+  # Private event records: authenticated ADMIN only; public analytics stays aggregate-only.
+  - name: visitor.search_events
+    mode: READ
+    description: Search individual visitor event records as an authenticated administrator. Returns timestamps, pages, location, user-agent, IP/session identifiers, properties and pagination. The admin MCP edge adds automationEvidence and bounded trafficAnalysis with detector version, stored-flag conflicts and sample completeness. Use this to investigate human versus automated visits. bot=false, scrolling and engaged time do NOT prove a human; user-agent does not verify operator identity. Never disclose these private records publicly.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    confirmRequired: false
+    parameters:
+      - { name: filter, type: object, required: false, description: 'Optional fields: q (text search, max 200 chars), event, path (contains), country, city, device, browser, referrer (contains), sessionId (exact), includeAdmin (boolean, default false). Other text filters match exactly. No arbitrary fields.' }
+      - { name: window, type: object, required: false, description: 'Use {"hours":24} (1-744), or {"from":"ISO timestamp with timezone","to":"ISO timestamp with timezone"} (at most 31 days, from inclusive, to exclusive). Default last 24 hours. Reuse response from/to when paging.' }
+      - { name: page, type: object, required: false, description: '{"number":0,"size":25}; number 0-10000, size 1-100. Read one bounded page per call; do not automatically export all records.' }
+    endpoint:
+      target: visitor-admin
+      method: GET
+      path: /api/admin/visitors
+
+  - name: visitor.get_session_events
+    mode: READ
+    description: Read a known visitor session's events as an authenticated administrator. Returns private details newest first and admin-edge automation evidence; excludes admin traffic. Use the exact sessionId and fixed time window from visitor.search_events to investigate request timing and behavior. bot=false or engagement does NOT verify a human. Empty results mean no matches in this window, not no historical visits. Never disclose these records publicly.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    confirmRequired: false
+    parameters:
+      - { name: sessionId, type: string, required: true, minLength: 1, maxLength: 256, description: 'Exact session identifier, not an IP address or an abbreviated display value.' }
+      - { name: window, type: object, required: false, description: 'Use {"hours":24} (1-744), or {"from":"ISO timestamp with timezone","to":"ISO timestamp with timezone"} (at most 31 days, from inclusive, to exclusive). Default last 24 hours. Reuse response from/to when paging.' }
+      - { name: page, type: object, required: false, description: '{"number":0,"size":25}; number 0-10000, size 1-100. Read one bounded page per call.' }
+    endpoint:
+      target: visitor-admin
+      method: GET
+      path: /api/admin/visitors
+
   # ── Admin: write ────────────────────────────────────────────────────────
   - name: admin.create_content_draft
     mode: WRITE

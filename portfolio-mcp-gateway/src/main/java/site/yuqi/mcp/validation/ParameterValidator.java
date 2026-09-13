@@ -47,6 +47,14 @@ public class ParameterValidator {
             }
         }
 
+        if (tool.getEndpoint() != null && "visitor-admin".equals(tool.getEndpoint().getTarget())) {
+            try {
+                VisitorQueryArguments.normalize(tool.getName(), safe);
+            } catch (IllegalArgumentException e) {
+                errors.add(e.getMessage());
+            }
+        }
+
         return ValidationResult.builder()
                 .valid(errors.isEmpty())
                 .errors(errors)

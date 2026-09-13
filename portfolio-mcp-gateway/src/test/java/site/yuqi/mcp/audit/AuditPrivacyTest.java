@@ -11,6 +11,16 @@ import static org.assertj.core.api.Assertions.*;
 
 @ExtendWith(OutputCaptureExtension.class)
 class AuditPrivacyTest {
+    @Test void visitorQueriesLogMetadataWithoutIdentifiersOrFilters(CapturedOutput output) {
+        var audit = new AuditService(new ObjectMapper());
+        ReflectionTestUtils.setField(audit, "enabled", true);
+        audit.logInvocation(ToolDefinition.builder().name("visitor.search_events").build(), "admin@example.invalid",
+                Map.of("filter", Map.of("q", "192.0.2.10", "sessionId", "private-session")),
+                null, "ok", 200, 10L, null);
+        assertThat(output.getOut()).contains("visitor.search_events").doesNotContain(
+                "admin@example.invalid", "192.0.2.10", "private-session");
+    }
+
     @Test void logsNoRawCandidateDataOrCredentials(CapturedOutput output) {
         var audit=new AuditService(new ObjectMapper()); ReflectionTestUtils.setField(audit,"enabled",true);
         audit.logInvocation(ToolDefinition.builder().name("career.update_private_answers").build(),"private@example.com",
