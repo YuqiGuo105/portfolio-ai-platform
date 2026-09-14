@@ -1361,6 +1361,9 @@ tools:
       any rule. Returns a changeId, before/after state, diff, warnings, and expiry.
       Supported actions: CREATE, UPDATE, SET_ENABLED. CREATE requires siteId, name,
       eventType, geoLevel, granularity, threshold, comparator, and cooldownSeconds in patch.
+      Optional nested filters.bot: ALL (default), EXCLUDE (only is_bot=false), ONLY (is_bot=true).
+      EXCLUDE omits unclassified records too; it is not proof of a human visitor.
+      Use UPDATE with only filters to preserve the other settings of an existing rule.
     requiredRole: ADMIN
     riskLevel: LOW
     dryRunSupported: false
@@ -1368,7 +1371,7 @@ tools:
     parameters:
       - { name: action,  type: string,  required: true,  description: "CREATE | UPDATE | SET_ENABLED" }
       - { name: ruleId,  type: integer, required: false, description: "Required for UPDATE and SET_ENABLED." }
-      - { name: patch,   type: object,  required: true,  description: "Partial fields to change (name, threshold, granularity, enabled, etc.)." }
+      - { name: patch,   type: object,  required: true,  description: 'Partial fields to change; for example {"filters":{"bot":"EXCLUDE"}}. Omitted filters preserve the existing policy. filters.bot accepts ALL, EXCLUDE, ONLY.' }
       - { name: reason,  type: string,  required: true, description: "Human-readable reason for the change." }
     endpoint:
       target: alerts
@@ -1497,7 +1500,7 @@ tools:
 
   - name: visitor.rule_test
     mode: READ
-    description: Evaluate a draft visitor rule against the latest aggregate bucket without creating an incident.
+    description: Evaluate a draft visitor rule against the latest aggregate bucket without creating an incident. Optional filters.bot uses aggregator classification, not verified human identity.
     requiredRole: ADMIN
     riskLevel: LOW
     dryRunSupported: false
@@ -1512,11 +1515,12 @@ tools:
       - { name: threshold, type: integer, required: true }
       - { name: comparator, type: string, required: true }
       - { name: cooldownSeconds, type: integer, required: true }
+      - { name: filters, type: object, required: false, description: 'Traffic filter: {"bot":"ALL"|"EXCLUDE"|"ONLY"}. ALL is the default; EXCLUDE counts only is_bot=false and omits unknown classifications.' }
     endpoint: { target: alerts, method: POST, path: /api/visitor-intelligence/rule-test }
 
   - name: visitor.explain_match
     mode: READ
-    description: Explain a persisted visitor rule match using its dimensions, latest measurement, comparator, and threshold.
+    description: Explain a persisted visitor rule match using its dimensions, traffic filters, latest measurement, comparator, and threshold. Non-bot classification does not prove a human visitor.
     requiredRole: ADMIN
     riskLevel: LOW
     dryRunSupported: false
