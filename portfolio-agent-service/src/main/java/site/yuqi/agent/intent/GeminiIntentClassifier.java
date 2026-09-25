@@ -270,7 +270,7 @@ public class GeminiIntentClassifier implements IntentClassifier {
             4. Do NOT execute any action.
             5. Never invent opaque internal identifiers. Reuse them only from trusted conversation state or trusted prior tool results. Plain user-provided fields may be extracted from the current utterance or conversation history.
             6. Set requiresConfirmation from the selected tool's declared metadata. Do not create exceptions in the route decision.
-            7. If the user intent is ambiguous, return CLARIFICATION_NEEDED with a helpful clarificationQuestion in the user's language.
+            7. If the user intent is genuinely ambiguous, return CLARIFICATION_NEEDED with a helpful clarificationQuestion in the user's language. Multiple compatible read-only requests in one utterance are not ambiguity. If the user accepts both options from a prior clarification, fulfill both using recentMessages rather than repeating the question.
             8. General knowledge, technical explanations, writing help and open-ended conversation are supported: return GENERAL_CHAT, not UNKNOWN merely because a question is unrelated to the portfolio. For mixed questions involving Yuqi, use KNOWLEDGE_QA so personal claims can be sourced.
             9. Select the response language from the current utterance using the response language contract below.
             10. normalizedQuery should be a concise English search query preserving the question's entities and constraints. Resolve follow-up references from recent turns. Never add an assumed school, employer, trip, or other personal fact.
@@ -320,6 +320,11 @@ public class GeminiIntentClassifier implements IntentClassifier {
             semantically required, return that route instead. Do not preserve
             the first-pass result merely because it was supplied. Return the
             same strict JSON schema as the primary classifier.
+
+            A CLARIFICATION_NEEDED result is valid only if essential information
+            is still missing. A request for both a technical explanation and
+            an interactive tour, or an acceptance of both options in recent
+            messages, needs execution rather than another clarification.
             """;
     }
 

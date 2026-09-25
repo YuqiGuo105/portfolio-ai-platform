@@ -56,7 +56,9 @@ public class LlmAgentRoutePlanner {
         if (!IntentValidator.hasValidEnvelope(intent)) {
             return strategies.select(intent, validation);
         }
-        if (reviewGeneralChat && (intent.intent() == IntentType.GENERAL_CHAT || intent.intent() == IntentType.WEB_GUIDE)
+        if (reviewGeneralChat && (intent.intent() == IntentType.GENERAL_CHAT
+                || intent.intent() == IntentType.WEB_GUIDE
+                || intent.intent() == IntentType.CLARIFICATION_NEEDED)
                 && validation.getStatus() != IntentValidator.Status.REJECT) {
             try {
                 IntentResult reviewed = classifier.reviewRoute(request, intent);

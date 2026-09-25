@@ -123,6 +123,55 @@ class LlmAgentRoutePlannerTest {
     }
 
     @Test
+    void mixedIntroductionAndTourIsNotAClarification() {
+        var question = IntentRequest.builder().sessionId("s1")
+                .utterance("能不能给我介绍一下他的这个专业技术, 然后给我导览一下。")
+                .build();
+        var first = new IntentResult(IntentType.CLARIFICATION_NEEDED, null, 0.80,
+                "zh", null, Map.of(), RiskLevel.READ_ONLY, false, List.of(),
+                "您是想了解专业技术，还是想浏览网站？");
+        var reviewed = new IntentResult(IntentType.KNOWLEDGE_QA, null, 0.96,
+                "zh", "Yuqi Guo technical experience", Map.of(
+                        "includeWebGuide", true,
+                        "guideTargetKeys", List.of("home.background", "home.projects"),
+                        "guideStartMode", "START_NOW"),
+                RiskLevel.READ_ONLY, false, List.of(), null);
+        when(classifier.classify(question)).thenReturn(first);
+        when(classifier.reviewRoute(question, first)).thenReturn(reviewed);
+        when(validator.validate(first)).thenReturn(IntentValidator.ValidationResult.builder()
+                .status(IntentValidator.Status.CLARIFY).build());
+        when(validator.validate(reviewed)).thenReturn(IntentValidator.ValidationResult.builder()
+                .status(IntentValidator.Status.GENERAL_CHAT).build());
+
+        AgentRouteDecision decision = planner.plan(question);
+
+        assertThat(decision.route()).isEqualTo(AgentRoute.KNOWLEDGE_QA);
+        assertThat(decision.intent().entities()).containsEntry("includeWebGuide", true);
+    }
+
+    @Test
+    void acceptingBothOptionsResolvesThePreviousReadOnlyRequest() {
+        var followUp = IntentRequest.builder().sessionId("s1").utterance("both ok")
+                .recentMessages(List.of(
+                        Map.of("role", "user", "content", "介绍专业技术，然后导览网站"),
+                        Map.of("role", "assistant", "content", "您是想了解专业技术，还是想浏览网站？")))
+                .build();
+        var first = pendingIntent(IntentType.CLARIFICATION_NEEDED, 1.0,
+                "您是想了解专业技术，还是想浏览网站？");
+        var reviewed = new IntentResult(IntentType.KNOWLEDGE_QA, null, 0.95,
+                "zh", "Yuqi Guo technical experience", Map.of("includeWebGuide", true),
+                RiskLevel.READ_ONLY, false, List.of(), null);
+        when(classifier.classify(followUp)).thenReturn(first);
+        when(classifier.reviewRoute(followUp, first)).thenReturn(reviewed);
+        when(validator.validate(first)).thenReturn(IntentValidator.ValidationResult.builder()
+                .status(IntentValidator.Status.CLARIFY).build());
+        when(validator.validate(reviewed)).thenReturn(IntentValidator.ValidationResult.builder()
+                .status(IntentValidator.Status.GENERAL_CHAT).build());
+
+        assertThat(planner.plan(followUp).route()).isEqualTo(AgentRoute.KNOWLEDGE_QA);
+    }
+
+    @Test
     void preservesTheFirstPassWhenSemanticReviewIsUnavailable() {
         IntentResult firstPass = new IntentResult(
                 IntentType.GENERAL_CHAT, null, 0.95, "en", null,

@@ -31,11 +31,14 @@ public final class WebGuideCatalog {
                 - GENERAL_CHAT is reserved for conversational turns that require no portfolio facts or content lookup.
                 - If the user names, references, or follows up about a portfolio entity and wants its introduction, details, source, or link, return KNOWLEDGE_QA even when the utterance is only a short title or noun phrase.
                 - Choose WEB_GUIDE only when the primary expected outcome is a UI action such as guiding, locating, highlighting, or opening an area of the website. Do not substitute a generic guide response for an information request.
-                - Asking how a section works, which technologies it uses, its workflow, architecture, or a diagram is KNOWLEDGE_QA, even if it names a visible page section. Explain from evidence rather than starting a tour. If explanation and navigation are both requested, prioritize answering the information request; a guide may be offered afterwards.
+                - Asking how a section works, which technologies it uses, its workflow, architecture, or a diagram is KNOWLEDGE_QA, even if it names a visible page section. Explain from evidence rather than starting a tour.
+                - If explanation and navigation are both requested, return KNOWLEDGE_QA with entities.includeWebGuide=true and guideTargetKeys for the requested areas. Answer from evidence first, then send the guide plan. This is not ambiguous and must not become CLARIFICATION_NEEDED.
+                - If a previous assistant turn asked the user to choose between two read-only options and the current turn accepts both, resolve the original request from recentMessages. Return KNOWLEDGE_QA with includeWebGuide=true when those options were an explanation and a website tour. Do not repeat the same clarification.
                 - For WEB_GUIDE use targetTool=null, riskLevel=READ_ONLY, requiresConfirmation=false, and generationTier=STANDARD.
                 - Put guideTargetKeys in entities as an ordered subset of these keys: %s.
                 - Put guideStartMode in entities as START_NOW or OFFER. Choose it from the user's intent and conversational context.
                 - Put guideResponseMessage in entities as a short user-facing message in the selected response language, honoring explicit output-language requests.
+                - For a mixed KNOWLEDGE_QA and guide request, set guideStartMode=START_NOW when the user asks to be guided now; otherwise OFFER.
                 - Do not create selectors, URLs, HTML, scripts, or target keys outside this catalog.
                 """.formatted(String.join(", ", allowedKeys()));
     }

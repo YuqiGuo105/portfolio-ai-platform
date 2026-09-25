@@ -254,6 +254,39 @@ class AgentPipelineServiceRouteTest {
     }
 
     @Test
+    void mixedQuestionAnswersBeforeStartingTheGuide() {
+        IntentResult intent = new IntentResult(IntentType.KNOWLEDGE_QA, null, 0.97,
+                "zh", "Yuqi Guo technical experience", Map.of(
+                        "includeWebGuide", true,
+                        "guideTargetKeys", List.of("home.background", "home.projects"),
+                        "guideStartMode", "START_NOW"),
+                RiskLevel.READ_ONLY, false, List.of(), null);
+        when(routePlanner.plan(any(IntentRequest.class))).thenReturn(AgentRouteDecision.knowledge(intent));
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("他的重点是后端与分布式系统。"));
+
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                .sessionId("mixed-guide-session")
+                .question("介绍他的专业技术，然后导览网站")
+                .build()).collectList().block();
+
+        assertThat(events).isNotNull();
+        List<Object> stages = events.stream().map(event -> event.get("stage")).toList();
+        assertThat(stages).contains("knowledge_retrieval", "tour_steps", "answer_final", "done");
+        assertThat(stages.indexOf("tour_steps")).isLessThan(stages.indexOf("answer_final"));
+        Map<String, Object> tour = events.stream()
+                .filter(event -> "tour_steps".equals(event.get("stage"))).findFirst().orElseThrow();
+        @SuppressWarnings("unchecked")
+        Map<String, Object> payload = (Map<String, Object>) tour.get("payload");
+        assertThat(payload).containsEntry("autoStart", true).containsEntry("language", "zh");
+        Map<String, Object> finalEvent = events.stream()
+                .filter(event -> "answer_final".equals(event.get("stage"))).findFirst().orElseThrow();
+        assertThat(finalEvent.toString()).contains("他的重点是后端与分布式系统。");
+    }
+
+    @Test
     void pendingActionUsesLlmDecisionBeforeExecuting() {
         IntentResult decisionIntent = new IntentResult(
                 IntentType.PENDING_ACTION_CONFIRM, null, 0.98,

@@ -50,6 +50,19 @@ class WebGuidePlanServiceTest {
     }
 
     @Test
+    void pureChineseGuideRequestCannotProduceEnglishControlsAndReply() {
+        IntentResult intent = new IntentResult(IntentType.WEB_GUIDE, null, 0.95,
+                "en", null, Map.of("guideResponseMessage", "What would you like to see first?"),
+                RiskLevel.READ_ONLY, false, List.of(), null);
+
+        WebGuidePlanService.WebGuidePlan plan = service.build(intent, "引导您浏览我的网站");
+
+        assertThat(plan.language()).isEqualTo("zh");
+        assertThat(plan.responseMessage()).contains("网页导览");
+        assertThat(plan.controls()).containsEntry("start", "开始网页导览");
+    }
+
+    @Test
     void classifierContractKeepsInformationRequestsOutOfGenericChatAndGuideRoutes() {
         String contract = WebGuideCatalog.classifierContract();
 

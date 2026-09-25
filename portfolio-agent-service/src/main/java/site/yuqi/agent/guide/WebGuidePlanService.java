@@ -16,11 +16,20 @@ public class WebGuidePlanService {
     private static final int MAX_STEPS = 7;
 
     public WebGuidePlan build(IntentResult intent) {
+        return build(intent, null);
+    }
+
+    public WebGuidePlan build(IntentResult intent, String utterance) {
         String language = normalizeLanguage(intent == null ? null : intent.language());
+        boolean pureChineseQuestion = utterance != null
+                && utterance.codePoints().anyMatch(codePoint -> Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.HAN)
+                && utterance.codePoints().noneMatch(codePoint -> Character.UnicodeScript.of(codePoint) == Character.UnicodeScript.LATIN);
+        boolean correctedLanguage = pureChineseQuestion && "en".equals(language);
+        if (correctedLanguage) language = "zh";
         Map<String, Object> entities = intent == null || intent.entities() == null ? Map.of() : intent.entities();
         List<String> selectedKeys = selectedKeys(entities.get("guideTargetKeys"));
         String startMode = normalizeStartMode(entities.get("guideStartMode"));
-        String responseMessage = cleanText(entities.get("guideResponseMessage"), 240);
+        String responseMessage = correctedLanguage ? null : cleanText(entities.get("guideResponseMessage"), 240);
         if (responseMessage == null) {
             responseMessage = isChinese(language)
                     ? "我已经为你准备好网页导览，并标出了相关区域。"

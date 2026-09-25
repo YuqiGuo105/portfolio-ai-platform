@@ -387,7 +387,7 @@ public class AgentPipelineService {
                     }
                     case WEB_GUIDE -> {
                         runLifecycle.transition(runId, AgentRunState.FINALIZING);
-                        WebGuidePlanService.WebGuidePlan guidePlan = webGuidePlanService.build(routeDecision.intent());
+                        WebGuidePlanService.WebGuidePlan guidePlan = webGuidePlanService.build(routeDecision.intent(), question);
                         Map<String, Object> guidePayload = guidePlan.toPayload();
                         String answer = guidePlan.responseMessage();
                         sink.next(stageEvent("tour_steps", answer, guidePayload));
@@ -687,6 +687,12 @@ public class AgentPipelineService {
                                 emitRunCompleted(runId, pipelineStart, "completed");
                                 memoryWriter.writeTurnPair(request.getConversationId(), question, checkedAnswer,
                                         routeDecision.route().name(), (Map<String, Object>) null);
+                                if (routeDecision.route() == AgentRoute.KNOWLEDGE_QA
+                                        && routeDecision.intent() != null
+                                        && Boolean.TRUE.equals(routeDecision.intent().entities().get("includeWebGuide"))) {
+                                    WebGuidePlanService.WebGuidePlan guidePlan = webGuidePlanService.build(routeDecision.intent(), question);
+                                    sink.next(stageEvent("tour_steps", guidePlan.responseMessage(), guidePlan.toPayload()));
+                                }
                                 sink.next(answerFinalEvent(checkedAnswer));
                             }
                             sink.next(doneEvent());
