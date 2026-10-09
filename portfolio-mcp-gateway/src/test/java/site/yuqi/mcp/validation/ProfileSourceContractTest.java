@@ -14,6 +14,7 @@ class ProfileSourceContractTest {
             var catalog = new ObjectMapper(new YAMLFactory()).readValue(input, ToolCatalog.class);
             var tool = catalog.getTools().stream().filter(t -> t.getName().equals("admin.search_content")).findFirst().orElseThrow();
             assertThat(new ParameterValidator().validate(tool, Map.of("sourceType", "EXPERIENCE", "limit", 50)).isValid()).isTrue();
+            assertThat(new ParameterValidator().validate(tool, Map.of("sourceType", "PROJECT", "limit", 25, "offset", 50)).isValid()).isTrue();
             assertThat(tool.getEndpoint().getPath()).isEqualTo("/api/admin/content");
         }
     }

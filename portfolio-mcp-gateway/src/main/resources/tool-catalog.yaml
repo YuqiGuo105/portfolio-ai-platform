@@ -687,6 +687,7 @@ tools:
     confirmRequired: false
     parameters:
       - { name: keyword,    type: string,  required: false, description: "Optional free-text keyword; omit for a bounded listing." }
+      - { name: offset,     type: integer, required: false, description: "Page offset; use a multiple of limit. Default 0." }
       - { name: sourceType, type: string,  required: false, description: "BLOG | PROJECT | LIFE | EXPERIENCE." }
       - { name: category,   type: string,  required: false, description: "Category slug filter." }
       - { name: limit,      type: integer, required: false, description: "Default 10, max 50." }

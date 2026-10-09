@@ -149,12 +149,13 @@ public class GeminiIntentClassifier implements IntentClassifier {
 
         WebClient client = webClientBuilder.baseUrl(baseUrl).build();
         String path = "/models/" + URLEncoder.encode(model, StandardCharsets.UTF_8)
-                + ":generateContent?key=" + URLEncoder.encode(apiKey, StandardCharsets.UTF_8);
+                + ":generateContent";
 
         String content;
         try {
             JsonNode resp = client.post()
                     .uri(path)
+                    .header("x-goog-api-key", apiKey)
                     .header("Content-Type", "application/json")
                     .bodyValue(body)
                     .retrieve()
@@ -167,7 +168,7 @@ public class GeminiIntentClassifier implements IntentClassifier {
             }
             JsonNode candidates = resp.get("candidates");
             if (candidates == null || !candidates.isArray() || candidates.isEmpty()) {
-                throw new IntentClassificationException("Gemini response missing candidates: " + resp);
+                throw new IntentClassificationException("Gemini response missing candidates.");
             }
             JsonNode parts = candidates.get(0).path("content").path("parts");
             if (parts == null || !parts.isArray() || parts.isEmpty()) {
@@ -182,7 +183,7 @@ public class GeminiIntentClassifier implements IntentClassifier {
         } catch (IntentClassificationException e) {
             throw e;
         } catch (Exception e) {
-            throw new IntentClassificationException("Gemini call failed: " + e.getMessage(), e);
+            throw new IntentClassificationException("Gemini provider unavailable.");
         }
 
         return parseAndAllowlist(content);
@@ -194,7 +195,7 @@ public class GeminiIntentClassifier implements IntentClassifier {
         try {
             node = objectMapper.readTree(rawJson);
         } catch (JsonProcessingException e) {
-            throw new IntentClassificationException("LLM did not return valid JSON: " + e.getMessage(), e);
+            throw new IntentClassificationException("LLM did not return valid JSON.");
         }
         if (!node.isObject()) {
             throw new IntentClassificationException("LLM JSON is not an object.");

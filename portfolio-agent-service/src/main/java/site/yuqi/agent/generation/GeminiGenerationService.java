@@ -74,13 +74,14 @@ public class GeminiGenerationService {
      * @return Flux of text deltas
      */
     public Flux<String> streamGenerate(String systemPrompt, String userMessage) {
-        String url = baseUrl + "/models/" + generationModel + ":streamGenerateContent?alt=sse&key=" + apiKey;
+        String url = baseUrl + "/models/" + generationModel + ":streamGenerateContent?alt=sse";
 
         ObjectNode requestBody = buildRequest(
                 systemPrompt, userMessage, false, maxOutputTokens, thinkingBudget);
 
         return webClient.post()
                 .uri(url)
+                .header("x-goog-api-key", apiKey)
                 .header("Content-Type", "application/json")
                 .bodyValue(requestBody.toString())
                 .retrieve()
@@ -90,7 +91,7 @@ public class GeminiGenerationService {
                 .map(this::extractTextDelta)
                 .filter(delta -> !delta.isEmpty())
                 .switchIfEmpty(Flux.error(new IllegalStateException("Generation returned no answer")))
-                .onErrorMap(e -> new IllegalStateException("Generation provider unavailable", e));
+                .onErrorMap(e -> new IllegalStateException("Generation provider unavailable"));
     }
 
     /**
@@ -100,12 +101,13 @@ public class GeminiGenerationService {
      */
     public Flux<GroundedChunk> streamGenerateGrounded(String systemPrompt, String userMessage) {
         String url = baseUrl + "/models/" + deepGenerationModel
-                + ":streamGenerateContent?alt=sse&key=" + apiKey;
+                + ":streamGenerateContent?alt=sse";
         ObjectNode requestBody = buildRequest(
                 systemPrompt, userMessage, true, deepMaxOutputTokens, null);
 
         return webClient.post()
                 .uri(url)
+                .header("x-goog-api-key", apiKey)
                 .header("Content-Type", "application/json")
                 .bodyValue(requestBody.toString())
                 .retrieve()
@@ -115,7 +117,7 @@ public class GeminiGenerationService {
                 .map(this::extractGroundedChunk)
                 .filter(chunk -> !chunk.text().isEmpty() || !chunk.sources().isEmpty())
                 .switchIfEmpty(Flux.error(new IllegalStateException("Research returned no answer")))
-                .onErrorMap(e -> new IllegalStateException("Research provider unavailable", e));
+                .onErrorMap(e -> new IllegalStateException("Research provider unavailable"));
     }
 
     /**
@@ -123,18 +125,20 @@ public class GeminiGenerationService {
      * language alignment, compaction, and safety rewrites.
      */
     public String generate(String systemPrompt, String userMessage) {
-        String url = baseUrl + "/models/" + utilityModel + ":generateContent?key=" + apiKey;
+        String url = baseUrl + "/models/" + utilityModel + ":generateContent";
 
         ObjectNode requestBody = buildRequest(
                 systemPrompt, userMessage, false, utilityMaxOutputTokens, utilityThinkingBudget);
 
         String response = webClient.post()
                 .uri(url)
+                .header("x-goog-api-key", apiKey)
                 .header("Content-Type", "application/json")
                 .bodyValue(requestBody.toString())
                 .retrieve()
                 .bodyToMono(String.class)
                 .timeout(Duration.ofSeconds(30))
+                .onErrorMap(e -> new IllegalStateException("Generation provider unavailable"))
                 .block();
 
         return extractFullText(response);
@@ -168,15 +172,17 @@ public class GeminiGenerationService {
     public String speechModel() { return speechModel; }
 
     private String generateDocumentResponse(ObjectNode requestBody, String model) {
-        String url = baseUrl + "/models/" + model + ":generateContent?key=" + apiKey;
+        String url = baseUrl + "/models/" + model + ":generateContent";
 
         String response = webClient.post()
                 .uri(url)
+                .header("x-goog-api-key", apiKey)
                 .header("Content-Type", "application/json")
                 .bodyValue(requestBody.toString())
                 .retrieve()
                 .bodyToMono(String.class)
                 .timeout(Duration.ofSeconds(45))
+                .onErrorMap(e -> new IllegalStateException("Generation provider unavailable"))
                 .block();
         return extractFullText(response);
     }

@@ -17,14 +17,27 @@ import static org.assertj.core.api.Assertions.assertThatThrownBy;
 class GeminiGenerationServiceFailureTest {
 
     private GeminiGenerationService service(HttpStatus status, String body, MediaType type) {
-        WebClient.Builder client = WebClient.builder().exchangeFunction(request -> Mono.just(
-                ClientResponse.create(status).header("Content-Type", type.toString()).body(body).build()));
+        WebClient.Builder client = WebClient.builder().exchangeFunction(request -> {
+            assertThat(request.url().toString()).doesNotContain("synthetic-key", "key=");
+            assertThat(request.headers().getFirst("x-goog-api-key")).isEqualTo("synthetic-key");
+            return Mono.just(ClientResponse.create(status).header("Content-Type", type.toString()).body(body).build());
+        });
         var service = new GeminiGenerationService(client, new ObjectMapper());
         ReflectionTestUtils.setField(service, "baseUrl", "https://synthetic.invalid");
         ReflectionTestUtils.setField(service, "apiKey", "synthetic-key");
         ReflectionTestUtils.setField(service, "generationModel", "synthetic-standard");
         ReflectionTestUtils.setField(service, "deepGenerationModel", "synthetic-deep");
+        ReflectionTestUtils.setField(service, "utilityModel", "synthetic-utility");
         return service;
+    }
+
+    @Test
+    void utilityAndDocumentFailuresDoNotExposeProviderDetails() {
+        var service = service(HttpStatus.BAD_REQUEST, "synthetic-key private-provider-detail", MediaType.TEXT_PLAIN);
+        assertThatThrownBy(() -> service.generate("system", "question"))
+                .hasMessage("Generation provider unavailable").hasNoCause();
+        assertThatThrownBy(() -> service.generateWithDocuments("system", "question", java.util.List.of()))
+                .hasMessage("Generation provider unavailable").hasNoCause();
     }
 
     @Test

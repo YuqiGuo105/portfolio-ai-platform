@@ -234,7 +234,7 @@ public class SafetyService {
         SafetyCheckResult result;
         try {
             String url = "https://generativelanguage.googleapis.com/v1beta/models/"
-                    + safetyModel + ":generateContent?key=" + geminiApiKey;
+                    + safetyModel + ":generateContent";
             var body = Map.of(
                     "systemInstruction", Map.of("parts", List.of(Map.of("text", prompt))),
                     "contents", List.of(Map.of("role", "user", "parts", List.of(Map.of("text", text)))),
@@ -245,6 +245,7 @@ public class SafetyService {
 
             GeminiResponse response = webClientBuilder.build()
                     .post().uri(url)
+                    .header("x-goog-api-key", geminiApiKey)
                     .bodyValue(body)
                     .retrieve()
                     .bodyToMono(GeminiResponse.class)
@@ -256,7 +257,7 @@ public class SafetyService {
                 result = enforceInputBlockThreshold(result);
             }
         } catch (Exception e) {
-            log.error("Safety check failed (fail-open) type={}: {}", checkType, e.getMessage());
+            log.error("Safety check failed (fail-open) type={} errorType={}", checkType, e.getClass().getSimpleName());
             result = SafetyCheckResult.builder()
                     .verdict(SafetyVerdict.WARN)
                     .checkType(checkType)

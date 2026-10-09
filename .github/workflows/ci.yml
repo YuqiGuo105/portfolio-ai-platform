@@ -37,7 +37,9 @@ jobs:
 
       # ── Full reactor build: compile + test + package ─────────────────────
       - name: Build & test all modules
+        shell: bash
         run: |
+          set -euo pipefail
           mvn -B \
             -Pcoverage \
             clean verify \
