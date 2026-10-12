@@ -13,6 +13,50 @@ import static org.assertj.core.api.Assertions.*;
 import static org.mockito.Mockito.*;
 
 class PublicProfileEvidenceServiceTest {
+    @Test void legacyDocumentsRequireVersionAndCurrentSourceVerification() throws Exception {
+        var meta = new HashMap<String, Object>(Map.of("source_type", "PROJECT", "source_id", "30000000-0000-0000-0000-000000000003", "status", "ACTIVE", "source_version", 2));
+        assertThat(PublicProfileEvidenceService.publicDocument(meta)).isTrue();
+        assertThat(searchDocument(meta, "[{\"id\":\"30000000-0000-0000-0000-000000000003\",\"publication_status\":\"PUBLISHED\"}]").toString())
+                .contains("Source passage", "accessVerified=true");
+        assertThat(searchDocument(meta, "[{\"id\":\"30000000-0000-0000-0000-000000000003\",\"publication_status\":\"DRAFT\"}]").toString()).doesNotContain("Source passage");
+        assertThat(searchDocument(meta, "[]").toString()).doesNotContain("Source passage");
+        meta.remove("source_version");
+        assertThat(PublicProfileEvidenceService.publicDocument(meta)).isFalse();
+    }
+
+    @Test void currentLifeBlogFlagOverridesStaleVectorPermissionAndUnknownFailsClosed() throws Exception {
+        var meta = new HashMap<String, Object>(Map.of("source_type", "LIFE_BLOG", "source_id", "2", "status", "ACTIVE",
+                "answer_visibility", "public", "retrieval_eligible", true, "source_requires_login", false));
+        for (var state : List.of("[{\"id\":\"2\",\"require_login\":true}]", "[{\"id\":\"2\"}]", "[]")) {
+            assertThat(searchDocument(meta, state).toString()).doesNotContain("Source passage", "life-blog/2");
+        }
+        assertThat(searchDocument(meta, "[{\"id\":\"2\",\"require_login\":false}]").toString())
+                .contains("Source passage", "sourceRequiresLogin=false", "life-blog/2");
+    }
+
+    @Test void sourceAccessOutageFailsClosed() {
+        var meta = new HashMap<String, Object>(Map.of("source_type", "LIFE_BLOG", "source_id", "2", "status", "ACTIVE", "answer_visibility", "public", "retrieval_eligible", true));
+        assertThatThrownBy(() -> searchDocument(meta, null)).isInstanceOf(RuntimeException.class);
+    }
+
+    private Map<String, Object> searchDocument(Map<String, Object> metadata, String sources) throws Exception {
+        var id = "20000000-0000-0000-0000-000000000002";
+        var body = new com.fasterxml.jackson.databind.ObjectMapper().writeValueAsString(List.of(Map.of("id", id, "content", "Source passage", "metadata", metadata)));
+        var builder = WebClient.builder().exchangeFunction(request -> {
+            boolean document = request.url().getPath().endsWith("kb_documents");
+            if (!document && sources == null) return Mono.just(ClientResponse.create(HttpStatus.SERVICE_UNAVAILABLE).build());
+            return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "application/json").body(document ? body : sources).build());
+        });
+        var search = mock(SupabaseCurrentKnowledgeSearch.class);
+        when(search.isEnabled()).thenReturn(true);
+        when(search.search(anyString(), anyInt())).thenReturn(new site.yuqi.ai.contracts.knowledge.KnowledgeSearchResponse("q",
+                List.of(site.yuqi.ai.contracts.knowledge.KnowledgeSearchResponse.ChunkHit.builder().chunkId(id)
+                        .sourceId(String.valueOf(metadata.get("source_id"))).sourceType(String.valueOf(metadata.get("source_type"))).title("Example").build()), 1));
+        var service = new PublicProfileEvidenceService(builder, search);
+        ReflectionTestUtils.setField(service, "baseUrl", "https://example.test");
+        ReflectionTestUtils.setField(service, "serviceKey", "test-key");
+        return service.search("Example", 4);
+    }
     private Map<String, Object> approved() {
         return new HashMap<>(Map.of("status", "ACTIVE", "answer_visibility", "public",
                 "evidence_review", "approved", "source_type", "PROFILE", "retrieval_eligible", true));
