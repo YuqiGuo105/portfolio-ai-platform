@@ -2,12 +2,14 @@ package site.yuqi.agent.web;
 
 import com.fasterxml.jackson.databind.JsonNode;
 import com.fasterxml.jackson.databind.ObjectMapper;
+import com.fasterxml.jackson.datatype.jsr310.JavaTimeModule;
 import jakarta.servlet.FilterChain;
 import jakarta.servlet.ServletException;
 import jakarta.servlet.http.HttpServletRequest;
 import jakarta.servlet.http.HttpServletResponse;
 import lombok.extern.slf4j.Slf4j;
 import org.springframework.beans.factory.annotation.Value;
+import org.springframework.beans.factory.annotation.Autowired;
 import org.springframework.lang.NonNull;
 import org.springframework.stereotype.Component;
 import org.springframework.web.filter.OncePerRequestFilter;
@@ -34,8 +36,9 @@ import java.util.Set;
  *
  * <p>Accepted credentials on protected endpoints:
  * <ol>
- *   <li>A Supabase HS256 JWT in {@code Authorization: Bearer <jwt>}.
- *       Signature is verified against {@code agent.auth.supabase-jwt-secret}.
+ *   <li>A Supabase access JWT in {@code Authorization: Bearer <jwt>}.
+ *       ES256/RS256 signatures use the configured Supabase JWKS; legacy
+ *       HS256 sessions still use {@code agent.auth.supabase-jwt-secret}.
  *       Roles are derived from the {@code app_metadata.roles} claim (or a
  *       top-level {@code roles} claim) if present, otherwise a signed-in
  *       user gets {@code VIEWER} and any email listed in
@@ -78,27 +81,36 @@ public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
     private static final Set<String> ALWAYS_OPEN = Set.of(
             "/api/health", "/actuator/health");
 
-    private final ObjectMapper mapper = new ObjectMapper();
+    private final ObjectMapper mapper = new ObjectMapper().registerModule(new JavaTimeModule());
 
     private final byte[] jwtSecret;
     private final String internalToken;
     private final Set<String> adminEmails;
     private final boolean allowAnonymous;
     private final boolean docsExposed;
+    private final SupabaseAsymmetricVerifier asymmetricVerifier;
 
+    public SupabaseJwtAuthFilter(String secret, String internal, String emails,
+                                boolean anonymous, boolean docs) {
+        this(secret, internal, emails, anonymous, docs, "");
+    }
+
+    @Autowired
     public SupabaseJwtAuthFilter(
             @Value("${agent.auth.supabase-jwt-secret:}") String jwtSecretRaw,
             @Value("${agent.auth.internal-token:}") String internalTokenRaw,
             @Value("${agent.auth.admin-emails:}") String adminEmailsCsv,
             @Value("${agent.auth.allow-anonymous:false}") boolean allowAnonymous,
-            @Value("${agent.auth.docs-exposed:false}") boolean docsExposed) {
+            @Value("${agent.auth.docs-exposed:false}") boolean docsExposed,
+            @Value("${agent.auth.supabase-url:${SUPABASE_URL:}}") String supabaseUrl) {
         String secret = jwtSecretRaw == null ? "" : jwtSecretRaw.trim();
         this.jwtSecret = secret.isEmpty() ? null : secret.getBytes(StandardCharsets.UTF_8);
         this.internalToken = internalTokenRaw == null ? "" : internalTokenRaw.trim();
         this.adminEmails = parseAdminEmails(adminEmailsCsv);
         this.allowAnonymous = allowAnonymous;
         this.docsExposed = docsExposed;
-        if (this.jwtSecret == null && this.internalToken.isEmpty() && !allowAnonymous) {
+        this.asymmetricVerifier = new SupabaseAsymmetricVerifier(supabaseUrl);
+        if (this.jwtSecret == null && !asymmetricVerifier.isConfigured() && this.internalToken.isEmpty() && !allowAnonymous) {
             log.warn("SupabaseJwtAuthFilter has no credentials configured: every " +
                     "/api/intent, /api/chat, /api/admin, and /api/rag request will 401. " +
                     "Set agent.auth.supabase-jwt-secret " +
@@ -154,7 +166,7 @@ public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
             // Trusted proxy — controllers will honor body userEmail/userRoles.
             principal = new AuthenticatedPrincipal(
                     AuthenticatedPrincipal.Source.INTERNAL_PROXY, null, null, Set.of());
-        } else if (jwtSecret != null) {
+        } else if (jwtSecret != null || asymmetricVerifier.isConfigured()) {
             principal = verifyJwt(bearer);
             if (principal == null) {
                 reject(resp, "invalid_jwt", "Supabase JWT signature or expiry check failed.");
@@ -170,7 +182,7 @@ public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
         chain.doFilter(req, resp);
     }
 
-    // ── JWT parsing (HS256 only, matching Supabase default) ─────────────
+    // Algorithm selection never allows asymmetric public keys to be HMAC keys.
 
     private AuthenticatedPrincipal verifyJwt(String jwt) {
         String[] parts = jwt.split("\\.");
@@ -182,7 +194,13 @@ public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
 
             JsonNode headerJson = mapper.readTree(header);
             String alg = headerJson.path("alg").asText("");
-            if (!"HS256".equalsIgnoreCase(alg)) {
+            if ("ES256".equals(alg) || "RS256".equals(alg)) {
+                JsonNode claims = mapper.valueToTree(asymmetricVerifier.verify(jwt));
+                String email = nullIfBlank(claims.path("email").asText(null));
+                return new AuthenticatedPrincipal(AuthenticatedPrincipal.Source.USER_JWT,
+                        claims.path("sub").asText(), email, extractRoles(claims, email));
+            }
+            if (!"HS256".equals(alg) || jwtSecret == null) {
                 log.debug("JWT rejected: unsupported alg={}", alg);
                 return null;
             }
@@ -193,7 +211,7 @@ public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
             }
             JsonNode claims = mapper.readTree(payload);
             long exp = claims.path("exp").asLong(0);
-            if (exp > 0 && System.currentTimeMillis() / 1000L >= exp) {
+            if (exp <= 0 || System.currentTimeMillis() / 1000L >= exp) {
                 log.debug("JWT rejected: expired at {}", exp);
                 return null;
             }
@@ -203,10 +221,10 @@ public class SupabaseJwtAuthFilter extends OncePerRequestFilter {
             return new AuthenticatedPrincipal(
                     AuthenticatedPrincipal.Source.USER_JWT, sub, email, roles);
         } catch (IllegalArgumentException e) {
-            log.debug("JWT base64 decode failed: {}", e.toString());
+            log.debug("JWT base64 decode failed");
             return null;
         } catch (Exception e) {
-            log.debug("JWT verify failed: {}", e.toString());
+            log.debug("JWT verification failed");
             return null;
         }
     }
