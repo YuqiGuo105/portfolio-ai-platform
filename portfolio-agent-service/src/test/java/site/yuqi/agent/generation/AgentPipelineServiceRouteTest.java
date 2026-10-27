@@ -49,6 +49,25 @@ import static org.mockito.Mockito.when;
 
 class AgentPipelineServiceRouteTest {
 
+    @Test
+    void disabledDeepStopsBeforeAnyBudgetOrModelWork() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "deepEnabled", false);
+        var events = service.runPipeline(AgentStreamRequest.builder().question("Research this online")
+                .mode("DEEPTHINKING").build()).collectList().block();
+        assertThat(events.toString()).contains("temporarily unavailable", "done");
+        org.mockito.Mockito.verifyNoInteractions(chatBudgetService, routePlanner, generationService, safetyService);
+    }
+
+    @Test
+    void disabledAttachmentsStopBeforeRetrievalUploadReadOrModels() {
+        org.springframework.test.util.ReflectionTestUtils.setField(service, "attachmentsEnabled", false);
+        var events = service.runPipeline(AgentStreamRequest.builder().question("Read this PDF")
+                .attachments(List.of(new AgentStreamRequest.AttachmentReference("file", "test.pdf", "application/pdf", 100L)))
+                .build()).collectList().block();
+        assertThat(events.toString()).contains("temporarily unavailable", "done");
+        org.mockito.Mockito.verifyNoInteractions(chatBudgetService, routePlanner, generationService, attachmentContextService);
+    }
+
     private SafetyService safetyService;
     private KnowledgeClient knowledgeClient;
     private GeminiGenerationService generationService;

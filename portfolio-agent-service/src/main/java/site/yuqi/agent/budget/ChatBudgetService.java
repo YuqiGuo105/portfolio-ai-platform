@@ -93,11 +93,11 @@ public class ChatBudgetService {
 
     public HighCostPathDecision evaluateHighCostPath() {
         BudgetSnapshot snapshot = snapshot();
-        if (!effectiveEnabled()) {
-            return HighCostPathDecision.allowed("budget_disabled", snapshot);
-        }
         if (!deepPathEnabled) {
             return HighCostPathDecision.denied("deep_path_disabled", snapshot);
+        }
+        if (!effectiveEnabled()) {
+            return HighCostPathDecision.allowed("budget_disabled", snapshot);
         }
         if (snapshot.remainingUsd().compareTo(deepPathMinRemainingUsd) < 0) {
             return HighCostPathDecision.denied("remaining_budget_below_deep_threshold", snapshot);

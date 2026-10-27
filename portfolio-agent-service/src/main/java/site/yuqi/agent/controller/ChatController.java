@@ -22,6 +22,7 @@ import site.yuqi.agent.service.GraphWorkflowRunner;
 import site.yuqi.agent.web.AuthenticatedPrincipal;
 
 import java.io.IOException;
+import java.util.Map;
 
 /**
  * Public chat surface mounted on {@code POST /api/chat}.
@@ -41,6 +42,17 @@ public class ChatController {
 
     @Value("${agent.sse.timeout-ms:120000}")
     private long sseTimeoutMs;
+
+    @Value("${agent.budget.deep-path-enabled:true}")
+    private boolean deepEnabled;
+
+    @Value("${agent.attachments.enabled:true}")
+    private boolean attachmentsEnabled;
+
+    @GetMapping("/chat/capabilities")
+    public Map<String, Boolean> capabilities() {
+        return Map.of("deep", deepEnabled, "attachments", attachmentsEnabled);
+    }
 
     @GetMapping("/health")
     public String health() {

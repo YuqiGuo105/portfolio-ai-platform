@@ -3,6 +3,8 @@ package site.yuqi.agent.attachment;
 import lombok.RequiredArgsConstructor;
 import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
+import org.springframework.http.HttpStatus;
+import org.springframework.web.server.ResponseStatusException;
 
 import java.time.Instant;
 import java.util.UUID;
@@ -15,6 +17,14 @@ public class AttachmentService {
     private final AttachmentUploadSigner uploadSigner;
     private final SupabaseAttachmentStorage storage;
     private final AttachmentCleanupService cleanup;
+
+    @Value("${agent.attachments.enabled:true}")
+    private boolean enabled = true;
+
+    private void requireEnabled() {
+        if (!enabled) throw new ResponseStatusException(HttpStatus.SERVICE_UNAVAILABLE,
+                "Image and PDF understanding is temporarily unavailable. Please send text instead.");
+    }
 
     @Value("${agent.attachments.max-files-per-conversation:2}")
     private int maxFilesPerConversation;
@@ -29,6 +39,7 @@ public class AttachmentService {
                                    String originalName,
                                    String suppliedMimeType,
                                    long sizeBytes) {
+        requireEnabled();
         if (conversationId == null || conversationId.isBlank()) {
             throw new IllegalArgumentException("Conversation identity is required");
         }
@@ -71,6 +82,7 @@ public class AttachmentService {
                                          long expiresAt,
                                          String signature,
                                          byte[] content) {
+        requireEnabled();
         AttachmentRecord record = registry.load(attachmentId);
         if (record == null) {
             throw new IllegalArgumentException("Attachment upload grant was not found");

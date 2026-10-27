@@ -2,6 +2,7 @@ package site.yuqi.agent.generation;
 
 import lombok.RequiredArgsConstructor;
 import lombok.extern.slf4j.Slf4j;
+import org.springframework.beans.factory.annotation.Value;
 import org.springframework.stereotype.Service;
 import reactor.core.publisher.Flux;
 import reactor.core.publisher.FluxSink;
@@ -68,6 +69,12 @@ public class AgentPipelineService {
     private final AttachmentContextService attachmentContextService;
     private final PublicProfileLinks publicProfileLinks;
     private final AgentRunLifecycle runLifecycle;
+
+    @Value("${agent.budget.deep-path-enabled:true}")
+    private boolean deepEnabled = true;
+
+    @Value("${agent.attachments.enabled:true}")
+    private boolean attachmentsEnabled = true;
 
     private static final String SYSTEM_PROMPT = """
             You are Yuqi's AI assistant on his portfolio website (yuqi.site).
@@ -139,6 +146,18 @@ public class AgentPipelineService {
             String question = request.getQuestion();
             String sessionId = request.getSessionId();
             boolean explicitDeepMode = "DEEPTHINKING".equalsIgnoreCase(request.getMode());
+            // Reject unsupported paths before budget reservation, retrieval or models.
+            String unavailable = explicitDeepMode && !deepEnabled
+                    ? "Deep research is temporarily unavailable. Please use Fast chat."
+                    : !attachmentsEnabled && request.getAttachments() != null && !request.getAttachments().isEmpty()
+                    ? "Image and PDF understanding is temporarily unavailable. Please send text instead."
+                    : null;
+            if (unavailable != null) {
+                sink.next(errorEvent(unavailable));
+                sink.next(doneEvent());
+                sink.complete();
+                return;
+            }
             if (question == null || question.isBlank()) {
                 sink.next(errorEvent("No question provided."));
                 sink.next(doneEvent());

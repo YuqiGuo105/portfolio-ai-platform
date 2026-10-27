@@ -16,6 +16,17 @@ import static org.mockito.Mockito.when;
 
 class AttachmentServiceTest {
 
+    @Test
+    void disabledFeatureRejectsNewGrantsAndExistingUploadUrlsBeforeStorage() {
+        ReflectionTestUtils.setField(service, "enabled", false);
+        assertThatThrownBy(() -> service.issueUpload("conv-1", "test.pdf", "application/pdf", 100))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class)
+                .hasMessageContaining("temporarily unavailable");
+        assertThatThrownBy(() -> service.acceptUpload("existing", 999L, "sig", new byte[100]))
+                .isInstanceOf(org.springframework.web.server.ResponseStatusException.class);
+        org.mockito.Mockito.verifyNoInteractions(registry, signer, storage);
+    }
+
     private AttachmentRegistry registry;
     private AttachmentUploadSigner signer;
     private SupabaseAttachmentStorage storage;

@@ -66,6 +66,7 @@ agent:
     tool-result-max-chars: ${AGENT_MEMORY_TOOL_RESULT_MAX_CHARS:3000}
 
   attachments:
+    enabled: ${AGENT_ATTACHMENTS_ENABLED:true}
     # Raw files live only in this private bucket. Redis owns the sliding lease
     # and stores only opaque metadata plus compact parser output.
     supabase-url: ${SUPABASE_URL:}
