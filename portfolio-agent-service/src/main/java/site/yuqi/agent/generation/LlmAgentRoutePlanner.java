@@ -124,11 +124,6 @@ public class LlmAgentRoutePlanner {
         };
     }
 
-    public AgentRouteDecision classificationError(IntentClassificationException e) {
-        log.warn("Intent classification unavailable: {}", e.toString());
-        return AgentRouteDecision.clarify(null, "I could not interpret that request right now. Please try again.");
-    }
-
     private static String nonBlank(String value, String fallback) {
         return value == null || value.isBlank() ? fallback : value;
     }

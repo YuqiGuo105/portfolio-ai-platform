@@ -13,6 +13,7 @@ import site.yuqi.agent.conversation.PlannerContext;
 import site.yuqi.agent.handoff.HandoffService;
 import site.yuqi.agent.guide.WebGuidePlanService;
 import site.yuqi.agent.intent.IntentOrchestrator;
+import site.yuqi.agent.intent.IntentClassificationException;
 import site.yuqi.agent.intent.IntentRequest;
 import site.yuqi.agent.intent.IntentResponse;
 import site.yuqi.agent.intent.IntentResult;
@@ -118,6 +119,47 @@ class AgentPipelineServiceRouteTest {
                 Instant.parse("2026-07-10T00:00:00Z")));
         when(chatBudgetService.evaluateHighCostPath())
                 .thenReturn(ChatBudgetService.HighCostPathDecision.allowed("within_budget", null));
+    }
+
+    @Test
+    void classifierOutageEndsAsAnErrorWithoutClarificationOrRetry() {
+        when(routePlanner.plan(any(IntentRequest.class)))
+                .thenThrow(new IntentClassificationException("provider failure with secret details"));
+
+        var events = service.runPipeline(AgentStreamRequest.builder()
+                .sessionId("routing-outage").question("Tell me about Yuqi").build())
+                .collectList().block();
+
+        assertRoutingUnavailable(events);
+        verify(routePlanner, times(1)).plan(any(IntentRequest.class));
+        verify(intentOrchestrator, never()).handlePreclassified(any(), any());
+        verify(knowledgeClient, never()).search(anyString(), anyInt());
+        verify(generationService, never()).streamGenerate(anyString(), anyString());
+        verify(responseLanguageService, never()).alignToInputLanguage(anyString(), anyString());
+    }
+
+    @Test
+    void confirmationClassifierOutageDoesNotExecuteThePendingAction() {
+        when(routePlanner.planPendingAction(any(IntentRequest.class)))
+                .thenThrow(new IntentClassificationException("provider failure with secret details"));
+
+        var events = service.runPipeline(AgentStreamRequest.builder()
+                .sessionId("confirmation-outage").question("confirm")
+                .pendingActionId("pending-write").build()).collectList().block();
+
+        assertRoutingUnavailable(events);
+        verify(routePlanner, times(1)).planPendingAction(any(IntentRequest.class));
+        org.mockito.Mockito.verifyNoInteractions(intentOrchestrator, memoryWriter);
+    }
+
+    private static void assertRoutingUnavailable(List<Map<String, Object>> events) {
+        assertThat(events).isNotNull();
+        assertThat(events.stream().filter(event -> "error".equals(event.get("stage"))).toList())
+                .hasSize(1).allSatisfy(event -> assertThat(((Map<?, ?>) event.get("payload")).get("code"))
+                        .isEqualTo("AI_ROUTING_UNAVAILABLE"));
+        assertThat(events.get(events.size() - 1).get("stage")).isEqualTo("done");
+        assertThat(events).noneMatch(event -> "answer_final".equals(event.get("stage")));
+        assertThat(events.toString()).doesNotContain("secret details", "clarify", "could not interpret");
     }
 
     @Test

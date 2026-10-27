@@ -3,8 +3,11 @@ package site.yuqi.agent.safety;
 import com.fasterxml.jackson.databind.ObjectMapper;
 import org.junit.jupiter.api.BeforeEach;
 import org.junit.jupiter.api.Test;
+import org.springframework.http.HttpStatus;
 import org.springframework.test.util.ReflectionTestUtils;
+import org.springframework.web.reactive.function.client.ClientResponse;
 import org.springframework.web.reactive.function.client.WebClient;
+import reactor.core.publisher.Mono;
 import site.yuqi.agent.observability.EventRecorder;
 
 import static org.assertj.core.api.Assertions.assertThat;
@@ -13,6 +16,25 @@ import static org.mockito.Mockito.mock;
 class SafetyServiceTest {
 
     private SafetyService service;
+
+    @Test
+    void configuredGatewayReceivesSafetyRequestsWithHeaderAuthentication() throws Exception {
+        var mapper = new ObjectMapper();
+        String decision = "{\"verdict\":\"PASS\",\"category\":\"SAFE\",\"confidence\":1,\"reason\":\"Safe\",\"constraints\":[]}";
+        String response = mapper.writeValueAsString(java.util.Map.of("candidates", java.util.List.of(
+                java.util.Map.of("content", java.util.Map.of("parts", java.util.List.of(java.util.Map.of("text", decision)))))));
+        var gatewayService = new SafetyService(WebClient.builder().exchangeFunction(request -> {
+            assertThat(request.url().toString()).isEqualTo("https://budget.example/ai/v1beta/models/test-model:generateContent");
+            assertThat(request.headers().getFirst("x-goog-api-key")).isEqualTo("internal-gateway-token");
+            return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "application/json").body(response).build());
+        }), mock(EventRecorder.class), mapper);
+        ReflectionTestUtils.setField(gatewayService, "enabled", true);
+        ReflectionTestUtils.setField(gatewayService, "geminiBaseUrl", "https://budget.example/ai/v1beta");
+        ReflectionTestUtils.setField(gatewayService, "geminiApiKey", "internal-gateway-token");
+        ReflectionTestUtils.setField(gatewayService, "safetyModel", "test-model");
+        ReflectionTestUtils.setField(gatewayService, "safetyTimeoutMs", 1000);
+        assertThat(gatewayService.checkInput("Hello", java.util.UUID.randomUUID()).verdict()).isEqualTo(SafetyVerdict.PASS);
+    }
 
     @BeforeEach
     void setUp() {

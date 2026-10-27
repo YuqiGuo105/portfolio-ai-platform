@@ -229,21 +229,7 @@ public class AgentPipelineService {
                         sink.next(stageStarted("confirmation_decision",
                                 "Understanding your response...", decisionStageId));
                         long decisionStart = System.currentTimeMillis();
-                        LlmAgentRoutePlanner.PendingActionDecision decision;
-                        try {
-                            decision = routePlanner.planPendingAction(intentRequest);
-                        } catch (IntentClassificationException e) {
-                            String message = alignAnswer(question,
-                                    "Please clearly confirm or cancel the pending action.");
-                            IntentResponse response = IntentResponse.confirmation(
-                                    message, request.getPendingActionId(), null);
-                            sink.next(stageCompleted("confirmation_decision",
-                                    "A clearer decision is needed", decisionStageId,
-                                    (int) (System.currentTimeMillis() - decisionStart),
-                                    Map.of("decision", "CLARIFY")));
-                            handleToolResponse(sink, request, response, runId, pipelineStart, question);
-                            return;
-                        }
+                        LlmAgentRoutePlanner.PendingActionDecision decision = routePlanner.planPendingAction(intentRequest);
                         sink.next(stageCompleted("confirmation_decision",
                                 "Response understood", decisionStageId,
                                 (int) (System.currentTimeMillis() - decisionStart),
@@ -292,7 +278,7 @@ public class AgentPipelineService {
                 var preflight = Mono.zip(
                                 Mono.fromCallable(() -> timed(() -> safetyService.checkInput(question, runId)))
                                         .subscribeOn(Schedulers.boundedElastic()),
-                                Mono.fromCallable(() -> timed(() -> planRoute(intentRequest)))
+                                Mono.fromCallable(() -> timed(() -> routePlanner.plan(intentRequest)))
                                         .subscribeOn(Schedulers.boundedElastic()))
                         .block();
                 if (preflight == null) {
@@ -733,6 +719,16 @@ public class AgentPipelineService {
                     emitRunCompleted(runId, pipelineStart, "failed");
                 });
 
+            } catch (IntentClassificationException e) {
+                // Provider/parse failures are not requests for user clarification.
+                // End the run without retrying a paid model or executing a tool.
+                log.warn("Intent routing unavailable for session={}", sessionId);
+                emitRunCompleted(runId, pipelineStart, "failed");
+                sink.next(Map.of("stage", "error", "payload", Map.of(
+                        "code", "AI_ROUTING_UNAVAILABLE",
+                        "message", "The AI service could not process this request. This is a service issue, not a problem with your question.")));
+                sink.next(doneEvent());
+                sink.complete();
             } catch (Exception e) {
                 log.error("Pipeline error for session={}", sessionId, e);
                 emitRunCompleted(runId, pipelineStart, "failed");
@@ -754,14 +750,6 @@ public class AgentPipelineService {
                 (int) (System.currentTimeMillis() - start),
                 safetyPayload(result)));
         return result;
-    }
-
-    private AgentRouteDecision planRoute(IntentRequest intentRequest) {
-        try {
-            return routePlanner.plan(intentRequest);
-        } catch (IntentClassificationException e) {
-            return routePlanner.classificationError(e);
-        }
     }
 
     private void handleBlockedInput(FluxSink<Map<String, Object>> sink,

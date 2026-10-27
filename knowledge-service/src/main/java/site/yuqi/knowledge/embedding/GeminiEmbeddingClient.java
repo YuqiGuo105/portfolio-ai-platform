@@ -29,6 +29,9 @@ public class GeminiEmbeddingClient implements EmbeddingClient {
     @Value("${knowledge.embedding.api-key}")
     private String apiKey;
 
+    @Value("${knowledge.embedding.base-url:${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}}")
+    private String baseUrl = "https://generativelanguage.googleapis.com/v1beta";
+
     @Value("${knowledge.embedding.model:text-embedding-004}")
     private String model;
 
@@ -52,7 +55,7 @@ public class GeminiEmbeddingClient implements EmbeddingClient {
     private record QueryKey(String model, int dimensions, String text) {}
 
     private float[] requestEmbedding(String text, int dimensions, String taskType) {
-        String url = "https://generativelanguage.googleapis.com/v1beta/models/"
+        String url = baseUrl + "/models/"
                 + model + ":embedContent";
 
         Map<String, Object> body = Map.of(

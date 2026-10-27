@@ -14,12 +14,15 @@ class GeminiEmbeddingClientCacheTest {
     void cachesQueryVectorsButNotFailuresAndReturnsDefensiveCopies() {
         AtomicInteger calls = new AtomicInteger();
         var client = new GeminiEmbeddingClient(WebClient.builder().exchangeFunction(request -> {
+            assertThat(request.url().toString()).startsWith("https://budget.example/ai/v1beta/models/");
+            assertThat(request.headers().getFirst("x-goog-api-key")).isEqualTo("test-key");
             if (calls.incrementAndGet() == 1) return Mono.error(new IllegalStateException("temporary outage"));
             return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "application/json")
                     .body("{\"embedding\":{\"values\":[0.1,0.2]}}").build());
         }));
         ReflectionTestUtils.setField(client, "model", "gemini-embedding-001");
         ReflectionTestUtils.setField(client, "apiKey", "test-key");
+        ReflectionTestUtils.setField(client, "baseUrl", "https://budget.example/ai/v1beta");
         assertThatThrownBy(() -> client.embedQuery("education", 2)).isInstanceOf(IllegalStateException.class);
         float[] first = client.embedQuery("education", 2);
         first[0] = 9;

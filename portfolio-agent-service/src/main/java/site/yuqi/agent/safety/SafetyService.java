@@ -155,6 +155,9 @@ public class SafetyService {
     @Value("${agent.model.gemini.api-key:}")
     private String geminiApiKey;
 
+    @Value("${agent.model.gemini.base-url:${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}}")
+    private String geminiBaseUrl = "https://generativelanguage.googleapis.com/v1beta";
+
     @Value("${safety.model:gemini-2.5-flash-lite}")
     private String safetyModel;
 
@@ -233,7 +236,7 @@ public class SafetyService {
         long start = System.currentTimeMillis();
         SafetyCheckResult result;
         try {
-            String url = "https://generativelanguage.googleapis.com/v1beta/models/"
+            String url = geminiBaseUrl + "/models/"
                     + safetyModel + ":generateContent";
             var body = Map.of(
                     "systemInstruction", Map.of("parts", List.of(Map.of("text", prompt))),
