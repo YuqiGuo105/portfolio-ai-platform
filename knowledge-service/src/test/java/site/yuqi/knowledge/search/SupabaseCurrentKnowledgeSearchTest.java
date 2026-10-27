@@ -15,6 +15,27 @@ import static org.mockito.Mockito.*;
 
 class SupabaseCurrentKnowledgeSearchTest {
     @Test
+    void recoversWithoutEmbeddingProviderAndNeverCallsTheLegacyIndex() {
+        for (boolean lexicalOnly : new boolean[]{false, true}) {
+            var embeddings = mock(EmbeddingClient.class);
+            when(embeddings.embedQuery("education", 1536)).thenThrow(new IllegalStateException("provider unavailable"));
+            var builder = WebClient.builder().exchangeFunction(request -> {
+                assertThat(request.url().getPath()).isEqualTo("/rest/v1/rpc/search_current_knowledge_lexical");
+                return Mono.just(ClientResponse.create(HttpStatus.OK).header("Content-Type", "application/json")
+                        .body("[]").build());
+            });
+            var service = new SupabaseCurrentKnowledgeSearch(builder, embeddings, new KnowledgeSourceUrlResolver("https://www.yuqi.site"));
+            ReflectionTestUtils.setField(service, "baseUrl", "https://test.supabase.co");
+            ReflectionTestUtils.setField(service, "serviceKey", "test-server-key");
+            ReflectionTestUtils.setField(service, "dimensions", 1536);
+            ReflectionTestUtils.setField(service, "lexicalOnly", lexicalOnly);
+            assertThat(service.search("education", 6).retrievalStrategy()).isEqualTo("supabase_current_lexical");
+            if (lexicalOnly) verifyNoInteractions(embeddings);
+            else verify(embeddings).embedQuery("education", 1536);
+        }
+    }
+
+    @Test
     void onlyCurrentEligibleEvidenceIsAccepted() {
         assertThat(SupabaseCurrentKnowledgeSearch.eligible(Map.of("status", "ACTIVE", "url", "/cv", "answer_visibility", "public"))).isTrue();
         assertThat(SupabaseCurrentKnowledgeSearch.eligible(Map.of("status", "SUPERSEDED", "url", "/cv"))).isFalse();

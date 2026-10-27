@@ -19,6 +19,7 @@ knowledge:
     service-key: ${SUPABASE_SERVICE_ROLE_KEY:}
     dimensions: 1536
     min-similarity: ${KNOWLEDGE_MIN_SIMILARITY:0.35}
+    lexical-only: ${KNOWLEDGE_LEXICAL_ONLY:false}
   opensearch:
     url: ${OPENSEARCH_URL:https://os-79250b0-yguo105-17e7.l.aivencloud.com:22949}
     username: ${OPENSEARCH_USERNAME:avnadmin}

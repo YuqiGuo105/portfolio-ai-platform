@@ -26,6 +26,7 @@ public class SupabaseCurrentKnowledgeSearch {
     @Value("${knowledge.supabase.service-key:}") private String serviceKey;
     @Value("${knowledge.supabase.dimensions:1536}") private int dimensions;
     @Value("${knowledge.supabase.min-similarity:0.35}") private double minSimilarity;
+    @Value("${knowledge.supabase.lexical-only:false}") private boolean lexicalOnly;
 
     public boolean isEnabled() { return enabled; }
 
@@ -34,16 +35,27 @@ public class SupabaseCurrentKnowledgeSearch {
             throw new IllegalStateException("Current knowledge store is not configured");
         }
         long start = System.currentTimeMillis();
-        float[] vector = embeddings.embedQuery(query, dimensions);
-        if (vector.length != dimensions) throw new IllegalStateException("Invalid knowledge query vector dimensions");
+        if (query == null || query.isBlank() || query.length() > 8000) throw new IllegalArgumentException("Invalid query");
+        float[] vector = null;
+        if (!lexicalOnly) {
+            try {
+                vector = embeddings.embedQuery(query, dimensions);
+                if (vector.length != dimensions) throw new IllegalStateException("Invalid knowledge query vector dimensions");
+            } catch (RuntimeException unavailable) {
+                // The fallback uses the same current sources and access checks,
+                // never the superseded legacy index or a different embedding space.
+                vector = null;
+            }
+        }
+        boolean lexical = vector == null;
         List<Row> rows = builder.clone().baseUrl(baseUrl).build().post()
-                .uri("/rest/v1/rpc/match_current_knowledge_v2")
+                .uri(lexical ? "/rest/v1/rpc/search_current_knowledge_lexical" : "/rest/v1/rpc/match_current_knowledge_v2")
                 .header("apikey", serviceKey).header("Authorization", "Bearer " + serviceKey)
-                .bodyValue(Map.of("query_embedding", vector, "match_count", Math.max(1, Math.min(topK, 20)),
-                        "min_similarity", minSimilarity))
+                .bodyValue(lexical ? Map.of("query_text", query, "match_count", Math.max(1, Math.min(topK, 20)))
+                        : Map.of("query_embedding", vector, "match_count", Math.max(1, Math.min(topK, 20)), "min_similarity", minSimilarity))
                 .retrieve().bodyToFlux(Row.class).collectList().timeout(Duration.ofSeconds(3)).block();
         return KnowledgeSearchResponse.builder().queryId(UUID.randomUUID().toString())
-                .retrievalStrategy("supabase_current_gemini_vector")
+                .retrievalStrategy(lexical ? "supabase_current_lexical" : "supabase_current_gemini_vector")
                 .latencyMs((int) (System.currentTimeMillis() - start))
                 .results(rows == null ? List.of() : rows.stream().filter(row -> eligible(row.metadata()))
                         .map(row -> {

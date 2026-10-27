@@ -54,6 +54,9 @@ agent:
       ttl-seconds: ${MCP_PENDING_ACTION_TTL_S:300}
       decision-confidence: ${MCP_PENDING_ACTION_DECISION_CONFIDENCE:0.80}
 
+  speech:
+    model: ${SPEECH_MODEL:gemini-2.5-flash}
+
   memory:
     ttl-seconds: ${AGENT_MEMORY_TTL_SECONDS:1800}
     max-turns-before-compact: ${AGENT_MEMORY_MAX_TURNS_BEFORE_COMPACT:10}
