@@ -68,6 +68,11 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
         decorate(spec, args);
     }
 
+    protected void decorate(WebClient.RequestHeadersSpec<?> spec, Map<String, Object> args,
+                            Map<String, Object> controlArgs, ToolDefinition tool) {
+        decorate(spec, args, controlArgs);
+    }
+
     /** Subclasses may translate catalog argument names into downstream API names. */
     protected void prepareArgs(ToolDefinition tool, Map<String, Object> args) {
         // default: no-op
@@ -123,7 +128,7 @@ public abstract class AbstractHttpAdapter implements DomainServiceAdapter {
                 request = (WebClient.RequestBodySpec) request.bodyValue(mutable);
             }
         }
-        decorate(request, mutable, controlArgs);
+        decorate(request, mutable, controlArgs, tool);
         if(controlArgs.get("_idempotencyKey")!=null) request.header("Idempotency-Key",String.valueOf(controlArgs.get("_idempotencyKey")));
         if(controlArgs.get("_operationId")!=null) request.header("X-Operation-Id",String.valueOf(controlArgs.get("_operationId")));
 

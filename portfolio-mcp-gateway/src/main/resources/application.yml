@@ -49,6 +49,7 @@ domain:
   portfolio:
     base-url: ${PORTFOLIO_BASE_URL:http://localhost:3000}
     timeout-ms: ${PORTFOLIO_TIMEOUT_MS:15000}
+    contact-token: ${CONTACT_MCP_TOKEN:}
   admin:
     base-url: ${ADMIN_SERVICE_BASE_URL:http://localhost:8081}
     admin-secret: ${ADMIN_SECRET:}
