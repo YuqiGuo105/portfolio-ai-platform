@@ -29,10 +29,13 @@ class PortfolioApiAdapterTest {
         var adapter = new PortfolioApiAdapter(builder);
         ReflectionTestUtils.setField(adapter, "contactToken", secret);
         ReflectionTestUtils.setField(adapter, "baseUrl", "https://www.yuqi.site");
+        ReflectionTestUtils.setField(adapter, "timeoutMs", 15000);
         var tool = ToolDefinition.builder().name("contact.email_owner").mode(ToolMode.WRITE)
                 .endpoint(ToolDefinition.Endpoint.builder().method("POST").path("/api/contact").build()).build();
         assertThatThrownBy(() -> adapter.invoke(tool, Map.of("email", "fixture@example.com", "message", "Test",
-                "_idempotencyKey", "operation-key", "_operationId", "operation-id"))).isInstanceOf(AdapterException.class);
+                "_idempotencyKey", "operation-key", "_operationId", "operation-id")))
+                .isInstanceOfSatisfying(AdapterException.class,
+                        error -> assertThat(error.getStatusCode()).isEqualTo(503));
         assertThat(calls.get()).isEqualTo(1);
     }
 
