@@ -34,7 +34,7 @@ public class GeminiGenerationService {
     @Value("${agent.model.gemini.base-url:${GEMINI_BASE_URL:https://generativelanguage.googleapis.com/v1beta}}")
     private String baseUrl;
 
-    @Value("${agent.generation.model:gemini-2.5-flash}")
+    @Value("${agent.generation.model:gemini-2.5-flash-lite}")
     private String generationModel;
 
     @Value("${agent.generation.deep-model:gemini-2.5-pro}")
@@ -79,7 +79,7 @@ public class GeminiGenerationService {
         ObjectNode requestBody = buildRequest(
                 systemPrompt, userMessage, false, maxOutputTokens, thinkingBudget);
 
-        return webClient.post()
+        return Flux.deferContextual(context -> webClient.post()
                 .uri(url)
                 .header("x-goog-api-key", apiKey)
                 .header("Content-Type", "application/json")
@@ -88,10 +88,18 @@ public class GeminiGenerationService {
                 .bodyToFlux(String.class)
                 .timeout(Duration.ofSeconds(60))
                 .filter(line -> line != null && !line.isBlank())
+                .doOnNext(line -> {
+                    if (!context.hasKey(GenerationUsage.class)) return;
+                    try {
+                        String json = line.startsWith("data:") ? line.substring(5).trim() : line;
+                        if (!json.equals("[DONE]")) context.<GenerationUsage>get(GenerationUsage.class)
+                                .observe(objectMapper.readTree(json).path("usageMetadata"));
+                    } catch (Exception ignored) { /* An absent receipt is not zero usage. */ }
+                })
                 .map(this::extractTextDelta)
                 .filter(delta -> !delta.isEmpty())
                 .switchIfEmpty(Flux.error(new IllegalStateException("Generation returned no answer")))
-                .onErrorMap(e -> new IllegalStateException("Generation provider unavailable"));
+                .onErrorMap(e -> new IllegalStateException("Generation provider unavailable")));
     }
 
     /**

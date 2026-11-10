@@ -392,6 +392,20 @@ public class AgentPipelineService {
                     }
                     case WEB_GUIDE -> {
                         runLifecycle.transition(runId, AgentRunState.FINALIZING);
+                        Map<String, Object> browserPlan = site.yuqi.agent.guide.BrowserActionPlan.parse(routeDecision.intent().entities());
+                        if (browserPlan != null) {
+                            String answer = routeDecision.intent().language() != null && routeDecision.intent().language().startsWith("zh")
+                                    ? "已准备好网页操作。操作结果会显示在下面，你可以继续让我切换步骤。"
+                                    : "The page actions are ready. Their results will appear below; you can ask me to change steps next.";
+                            sink.next(stageEvent("browser_actions", answer, browserPlan));
+                            recordAnswerEvent(request, runId, pipelineStart, answer, "answered", "BROWSER_ACTIONS");
+                            memoryWriter.writeTurnPair(request.getConversationId(), question, answer, "BROWSER_ACTIONS", browserPlan);
+                            emitRunCompleted(runId, pipelineStart, "web_guide");
+                            sink.next(answerFinalEvent(answer, Map.of("responseType", "BROWSER_ACTIONS")));
+                            sink.next(doneEvent());
+                            sink.complete();
+                            return;
+                        }
                         WebGuidePlanService.WebGuidePlan guidePlan = webGuidePlanService.build(routeDecision.intent(), question);
                         Map<String, Object> guidePayload = guidePlan.toPayload();
                         String answer = guidePlan.responseMessage();
@@ -552,6 +566,7 @@ public class AgentPipelineService {
                 long generationStart = System.currentTimeMillis();
                 StringBuilder answerBuf = new StringBuilder();
                 Map<String, GeminiGenerationService.GroundedSource> groundedSources = new LinkedHashMap<>();
+                GenerationUsage generationUsage = new GenerationUsage();
                 chatBudgetService.recordModelCall(selectedGenerationModel, effectiveDeepMode, effectiveDeepMode);
                 String generationSystemPrompt = SYSTEM_PROMPT + ResponseLanguagePolicy.forTarget(
                         routeDecision.intent() == null ? null : routeDecision.intent().language());
@@ -560,6 +575,7 @@ public class AgentPipelineService {
                         : generationService.streamGenerate(generationSystemPrompt, userPrompt)
                                 .map(delta -> new GeminiGenerationService.GroundedChunk(delta, List.of()));
                 var generationSubscription = generationFlux
+                        .contextWrite(context -> context.put(GenerationUsage.class, generationUsage))
                         // Output checks and JDBC recording block; never run them on Netty's event loop.
                         .publishOn(Schedulers.boundedElastic(), 32)
                         .doOnNext(chunk -> {
@@ -583,7 +599,8 @@ public class AgentPipelineService {
                                     generationLatency,
                                     Map.of(
                                             "outputLength", fullAnswer.length(),
-                                            "sourcesFound", groundedSources.size())));
+                                            "sourcesFound", groundedSources.size(),
+                                            "usage", generationUsage.snapshot(selectedGenerationModel))));
                             if (effectiveDeepMode) {
                                 sink.next(reasoningStep("Search relevant sources",
                                         "Found " + groundedSources.size() + " citable public source"
@@ -606,6 +623,7 @@ public class AgentPipelineService {
                                             "model", selectedGenerationModel,
                                             "operation", "stream_generate",
                                             "promptVersion", "portfolio_assistant_v5",
+                                            "usage", generationUsage.snapshot(selectedGenerationModel),
                                             "outputLength", fullAnswer.length()))
                                     .build());
 
@@ -689,10 +707,15 @@ public class AgentPipelineService {
                                                 "route", routeDecision.route().name()))
                                         .build());
 
+                                Map<String, Object> browserPlan = routeDecision.route() == AgentRoute.KNOWLEDGE_QA
+                                        && routeDecision.intent() != null
+                                        ? site.yuqi.agent.guide.BrowserActionPlan.parse(routeDecision.intent().entities()) : null;
                                 emitRunCompleted(runId, pipelineStart, "completed");
                                 memoryWriter.writeTurnPair(request.getConversationId(), question, checkedAnswer,
-                                        routeDecision.route().name(), (Map<String, Object>) null);
-                                if (routeDecision.route() == AgentRoute.KNOWLEDGE_QA
+                                        routeDecision.route().name(), browserPlan);
+                                if (browserPlan != null) {
+                                    sink.next(stageEvent("browser_actions", "Page actions are ready", browserPlan));
+                                } else if (routeDecision.route() == AgentRoute.KNOWLEDGE_QA
                                         && routeDecision.intent() != null
                                         && Boolean.TRUE.equals(routeDecision.intent().entities().get("includeWebGuide"))) {
                                     WebGuidePlanService.WebGuidePlan guidePlan = webGuidePlanService.build(routeDecision.intent(), question);

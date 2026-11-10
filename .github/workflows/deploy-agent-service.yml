@@ -39,7 +39,7 @@ env:
   CHAT_DAILY_BUDGET_USD: ${{ vars.PORTFOLIO_AGENT_DAILY_BUDGET_USD || '2.00' }}
   GEMINI_INTENT_MODEL: ${{ vars.GEMINI_INTENT_MODEL || 'gemini-2.5-flash-lite' }}
   SAFETY_MODEL: ${{ vars.SAFETY_MODEL || 'gemini-2.5-flash-lite' }}
-  GENERATION_MODEL: ${{ vars.GENERATION_MODEL || 'gemini-2.5-flash' }}
+  GENERATION_MODEL: ${{ vars.GENERATION_MODEL || 'gemini-2.5-flash-lite' }}
   DEEP_GENERATION_MODEL: ${{ vars.DEEP_GENERATION_MODEL || 'gemini-2.5-pro' }}
   UTILITY_GENERATION_MODEL: ${{ vars.UTILITY_GENERATION_MODEL || 'gemini-2.5-flash-lite' }}
   DEPLOY_SHA: ${{ github.event.workflow_run.head_sha || github.sha }}

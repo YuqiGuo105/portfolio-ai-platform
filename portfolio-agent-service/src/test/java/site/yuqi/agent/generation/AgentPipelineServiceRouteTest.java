@@ -315,6 +315,47 @@ class AgentPipelineServiceRouteTest {
     }
 
     @Test
+    void browserControlRouteEmitsOnlyValidatedActionsAndNeverExecutesBackendTools() {
+        IntentResult intent = new IntentResult(
+                IntentType.WEB_GUIDE, null, 0.96, "en", null,
+                Map.of("browserActions", List.of(Map.of("type", "diagram_step", "flow", "publish-content", "step", 3)),
+                        "guideStartMode", "START_NOW"), RiskLevel.READ_ONLY, false, List.of(), null);
+        when(routePlanner.plan(any(IntentRequest.class))).thenReturn(AgentRouteDecision.webGuide(intent));
+        List<Map<String, Object>> events = service.runPipeline(AgentStreamRequest.builder()
+                .sessionId("browser-session").question("Show publishing step 3").build()).collectList().block();
+        assertThat(events).extracting(event -> event.get("stage"))
+                .contains("safety_check", "routing", "browser_actions", "answer_final", "done")
+                .doesNotContain("tour_steps", "knowledge_retrieval", "tool_call_start");
+        verify(knowledgeClient, never()).search(anyString(), anyInt());
+        verify(intentOrchestrator, never()).handlePreclassified(any(), any());
+    }
+
+    @Test
+    void mixedBrowserActionsWaitForEvidenceAndSuccessfulOutputSafety() {
+        IntentResult intent = new IntentResult(IntentType.KNOWLEDGE_QA, null, 0.97,
+                "en", "publication workflow", Map.of(
+                        "browserActions", List.of(Map.of("type", "diagram_step", "flow", "publish-content", "step", 1)),
+                        "guideStartMode", "START_NOW"), RiskLevel.READ_ONLY, false, List.of(), null);
+        when(routePlanner.plan(any(IntentRequest.class))).thenReturn(AgentRouteDecision.knowledge(intent));
+        when(knowledgeClient.search(anyString(), anyInt()))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
+        when(generationService.streamGenerate(anyString(), anyString()))
+                .thenReturn(reactor.core.publisher.Flux.just("Publication writes an outbox event in the same transaction."));
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("explain-and-show")
+                .question("Explain publication and show the diagram").build()).collectList().block();
+        var stages = events.stream().map(event -> event.get("stage")).toList();
+        assertThat(stages).contains("knowledge_retrieval", "output_safety", "browser_actions", "answer_final").doesNotContain("tour_steps");
+        assertThat(stages.lastIndexOf("output_safety")).isLessThan(stages.indexOf("browser_actions"));
+        assertThat(stages.indexOf("browser_actions")).isLessThan(stages.indexOf("answer_final"));
+
+        when(safetyService.checkOutputWithContext(any(), any())).thenReturn(SafetyCheckResult.builder()
+                .verdict(SafetyVerdict.BLOCK).category("UNGROUNDED").reason("No evidence").build());
+        var blocked = service.runPipeline(AgentStreamRequest.builder().sessionId("blocked-page-action")
+                .question("Explain publication and show the diagram").build()).collectList().block();
+        assertThat(blocked).extracting(event -> event.get("stage")).doesNotContain("browser_actions");
+    }
+
+    @Test
     void mixedQuestionAnswersBeforeStartingTheGuide() {
         IntentResult intent = new IntentResult(IntentType.KNOWLEDGE_QA, null, 0.97,
                 "zh", "Yuqi Guo technical experience", Map.of(

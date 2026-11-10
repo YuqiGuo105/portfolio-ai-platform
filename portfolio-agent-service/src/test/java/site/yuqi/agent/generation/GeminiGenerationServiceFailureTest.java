@@ -85,4 +85,35 @@ class GeminiGenerationServiceFailureTest {
                 .collectList().block(Duration.ofSeconds(3)))
                 .containsExactly("芝加哥和克里夫兰");
     }
+
+    @Test
+    void usageReceiptIsScopedToTheSubscriptionAndNeverAddedToAnswerText() {
+        var service = service(HttpStatus.OK,
+                "data: {\"candidates\":[{\"content\":{\"parts\":[{\"text\":\"Answer\"}]}}]}\n\n"
+                + "data: {\"usageMetadata\":{\"promptTokenCount\":100,\"totalTokenCount\":140}}\n\n",
+                MediaType.TEXT_EVENT_STREAM);
+        var usage = new GenerationUsage();
+        assertThat(service.streamGenerate("system", "question")
+                .contextWrite(context -> context.put(GenerationUsage.class, usage))
+                .collectList().block(Duration.ofSeconds(3))).containsExactly("Answer");
+        assertThat(usage.snapshot("gemini-2.5-flash-lite"))
+                .containsEntry("inputTokens", 100L).containsEntry("outputTokens", 40L)
+                .containsEntry("costUsd", 0.000026);
+        assertThat(new GenerationUsage().snapshot("gemini-2.5-flash-lite")).isEmpty();
+    }
+
+    @Test
+    void invalidOrMissingReceiptsDoNotFabricateFreeUsageOrUnknownModelPrices() throws Exception {
+        var mapper = new ObjectMapper();
+        var usage = new GenerationUsage();
+        for (String receipt : java.util.List.of("{}", "{\"promptTokenCount\":-1,\"totalTokenCount\":4}",
+                "{\"promptTokenCount\":10,\"totalTokenCount\":4}",
+                "{\"promptTokenCount\":\"5\",\"totalTokenCount\":8}")) {
+            usage.observe(mapper.readTree(receipt));
+            assertThat(usage.snapshot("gemini-2.5-flash-lite")).isEmpty();
+        }
+        usage.observe(mapper.readTree("{\"promptTokenCount\":10,\"totalTokenCount\":40}"));
+        usage.observe(mapper.readTree("{\"promptTokenCount\":10,\"totalTokenCount\":20}"));
+        assertThat(usage.snapshot("unknown")).containsEntry("outputTokens", 30L).doesNotContainKey("costUsd");
+    }
 }

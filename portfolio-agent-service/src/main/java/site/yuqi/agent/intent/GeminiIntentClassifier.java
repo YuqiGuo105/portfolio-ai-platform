@@ -305,7 +305,8 @@ public class GeminiIntentClassifier implements IntentClassifier {
               "progressMessage": "<short user-facing progress message in the user's language; no hidden reasoning>"
             }
             """.formatted(LocalDate.now(ZoneOffset.UTC), WebGuideCatalog.classifierContract(), toolsBlock)
-                + ResponseLanguagePolicy.CLASSIFIER_INSTRUCTION;
+                + ResponseLanguagePolicy.CLASSIFIER_INSTRUCTION
+                + site.yuqi.agent.guide.BrowserActionPlan.CONTRACT;
     }
 
     private String buildRouteReviewSystemPrompt() {
