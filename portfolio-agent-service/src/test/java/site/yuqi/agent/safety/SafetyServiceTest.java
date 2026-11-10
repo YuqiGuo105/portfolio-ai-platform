@@ -18,6 +18,17 @@ class SafetyServiceTest {
     private SafetyService service;
 
     @Test
+    void publicPageControlsAreDistinguishedFromPrivateInfrastructureWithoutBypassingChecks() {
+        String prompt = (String) ReflectionTestUtils.getField(SafetyService.class, "INPUT_SAFETY_PROMPT");
+        assertThat(prompt).contains("simulated public portfolio interface", "reads no visitor records",
+                "NOT an operating-system", "does not authorize arbitrary shell commands",
+                "Downstream validation", "access, retrieve, manipulate, or disclose protected");
+        for (String command : site.yuqi.agent.guide.BrowserActionPlan.COMMANDS) {
+            assertThat(prompt).contains(command);
+        }
+    }
+
+    @Test
     void configuredGatewayReceivesSafetyRequestsWithHeaderAuthentication() throws Exception {
         var mapper = new ObjectMapper();
         String decision = "{\"verdict\":\"PASS\",\"category\":\"SAFE\",\"confidence\":1,\"reason\":\"Safe\",\"constraints\":[]}";
