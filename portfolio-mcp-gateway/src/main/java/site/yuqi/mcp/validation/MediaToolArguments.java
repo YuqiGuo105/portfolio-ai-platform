@@ -15,7 +15,7 @@ final class MediaToolArguments {
             if (!key.startsWith("_") && !allowed.contains(key))
                 throw new IllegalArgumentException("Unknown media argument: " + key);
         }
-        for (String key : Set.of("id", "sourceId")) if (args.containsKey(key) && !(args.get(key) instanceof String id
+        for (String key : Set.of("id", "sourceId", "requestId")) if (args.containsKey(key) && !(args.get(key) instanceof String id
                 && id.matches("[0-9a-fA-F]{8}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{4}-[0-9a-fA-F]{12}")))
             throw new IllegalArgumentException(key + " must be a UUID");
         if (args.containsKey("expectedContentHash") && !(args.get("expectedContentHash") instanceof String hash && hash.matches("[0-9a-f]{64}")))

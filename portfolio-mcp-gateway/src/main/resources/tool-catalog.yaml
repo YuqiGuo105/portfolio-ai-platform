@@ -26,6 +26,45 @@
 #     riskLevel / confirmRequired flags.
 
 tools:
+  - name: media.prepare_presentation_upload
+    mode: WRITE
+    description: Create a durable homepage Introduction replacement request and return its protected browser uploadUrl. Preferred when the AI client cannot upload binary files. Ask the user to open the link, sign in with an authorized Google administrator account, select the video and approve Upload & replace. The browser uploads directly; the existing worker switches only after READY, preserving the previous asset. A conflicting newer Introduction is never overwritten. Request expires after 24 hours. Creating this request alone does not upload or replace anything. Use get_presentation_job for progress. A Google login does not itself grant administrator access.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: requestId, type: string, required: true, minLength: 36, maxLength: 36, description: Stable UUID for this upload request; reuse on retries. }
+      - { name: placementKey, type: string, required: true, enum: [yuqi-intro] }
+      - { name: title, type: string, required: false, minLength: 1, maxLength: 300 }
+    endpoint: { target: admin, method: POST, path: /api/admin/media/presentation-jobs }
+
+  - name: media.get_presentation_job
+    mode: READ
+    description: Read a durable Introduction upload request, asset status and replacement outcome. SUCCEEDED means the placement was saved, not that every cached homepage has refreshed; verify the public player after homepage ISR refresh. A closed chat does not cancel the task. If the client has an old tool list, the administrator can also use https://www.yuqi.site/admin/media-intro directly.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+    endpoint: { target: admin, method: GET, path: "/api/admin/media/presentation-jobs/{id}" }
+
+  - name: media.list_presentation_jobs
+    mode: READ
+    description: List the 20 most recent Introduction upload requests to resume work after a chat disconnect. Administrator only. No signed storage URLs or private original links are returned.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    parameters: []
+    endpoint: { target: admin, method: GET, path: /api/admin/media/presentation-jobs }
+
+  - name: media.cancel_presentation_job
+    mode: WRITE
+    description: Cancel a pending Introduction replacement after approval. Does not delete uploaded media or undo an already completed replacement. Transcoding already queued can still finish, but the cancelled request will not update the homepage.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+    endpoint: { target: admin, method: POST, path: "/api/admin/media/presentation-jobs/{id}/cancel" }
+
   - name: media.get_presentation
     mode: READ
     description: Read the homepage Introduction placement (yuqi-intro), current assetId, enabled state and revision. This is separate from article videos. Read this before replacing or disabling it; public visibility follows the homepage ISR refresh, not the write response.

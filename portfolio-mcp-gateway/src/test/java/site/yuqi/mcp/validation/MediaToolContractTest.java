@@ -28,7 +28,8 @@ class MediaToolContractTest {
                 "media.list", "media.get", "media.get_upload_limits", "media.start_upload", "media.resume_upload",
                 "media.complete_upload", "media.update", "media.check_delete", "media.delete", "media.retry_processing",
                 "media.get_article", "media.attach_to_article", "media.detach_from_article",
-                "media.get_presentation", "media.set_presentation", "media.disable_presentation");
+                "media.get_presentation", "media.set_presentation", "media.disable_presentation",
+                "media.prepare_presentation_upload", "media.get_presentation_job", "media.list_presentation_jobs", "media.cancel_presentation_job");
         for (var tool : tools()) {
             assertThat(tool.getRequiredRole()).isEqualTo("ADMIN");
             assertThat(tool.getEndpoint().getTarget()).isEqualTo("admin");
@@ -73,6 +74,19 @@ class MediaToolContractTest {
 
     private ToolDefinition tool(String name) throws Exception {
         return tools().stream().filter(t -> t.getName().equals(name)).findFirst().orElseThrow();
+    }
+
+    @Test void browserUploadRequestRequiresStableIdAndNeverAcceptsBinaryOrArbitraryDestinations() throws Exception {
+        var validator = new ParameterValidator();
+        var tool = tool("media.prepare_presentation_upload");
+        var args = new HashMap<String, Object>(Map.of("requestId", UUID.randomUUID().toString(), "placementKey", "yuqi-intro"));
+        assertThat(validator.validate(tool, args).isValid()).isTrue();
+        args.put("requestId", "x".repeat(36));
+        assertThat(validator.validate(tool, args).isValid()).isFalse();
+        args.put("requestId", UUID.randomUUID().toString()); args.put("uploadUrl", "http://localhost");
+        assertThat(validator.validate(tool, args).isValid()).isFalse();
+        args.remove("uploadUrl"); args.put("data", "base64");
+        assertThat(validator.validate(tool, args).isValid()).isFalse();
     }
 
     @Test void presentationToolsRequireKnownPlacementRevisionAndBoundedChapters() throws Exception {
