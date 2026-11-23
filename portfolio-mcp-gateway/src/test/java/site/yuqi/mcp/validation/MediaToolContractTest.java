@@ -27,7 +27,8 @@ class MediaToolContractTest {
         assertThat(tools()).extracting(ToolDefinition::getName).containsExactlyInAnyOrder(
                 "media.list", "media.get", "media.get_upload_limits", "media.start_upload", "media.resume_upload",
                 "media.complete_upload", "media.update", "media.check_delete", "media.delete", "media.retry_processing",
-                "media.get_article", "media.attach_to_article", "media.detach_from_article");
+                "media.get_article", "media.attach_to_article", "media.detach_from_article",
+                "media.get_presentation", "media.set_presentation", "media.disable_presentation");
         for (var tool : tools()) {
             assertThat(tool.getRequiredRole()).isEqualTo("ADMIN");
             assertThat(tool.getEndpoint().getTarget()).isEqualTo("admin");
@@ -72,6 +73,26 @@ class MediaToolContractTest {
 
     private ToolDefinition tool(String name) throws Exception {
         return tools().stream().filter(t -> t.getName().equals(name)).findFirst().orElseThrow();
+    }
+
+    @Test void presentationToolsRequireKnownPlacementRevisionAndBoundedChapters() throws Exception {
+        var validator = new ParameterValidator();
+        var args = new HashMap<String, Object>(Map.of("placementKey", "yuqi-intro", "id", UUID.randomUUID().toString(),
+                "expectedRevision", "a".repeat(64), "chapters", List.of(Map.of("seconds", 0, "title", "Hello"))));
+        var tool = tool("media.set_presentation");
+        assertThat(validator.validate(tool, args).isValid()).isTrue();
+        args.put("placementKey", "../private");
+        assertThat(validator.validate(tool, args).isValid()).isFalse();
+        args.put("placementKey", "yuqi-intro"); args.put("expectedRevision", "x".repeat(64));
+        assertThat(validator.validate(tool, args).isValid()).isFalse();
+        args.put("expectedRevision", "a".repeat(64)); args.put("chapters", List.of(Map.of("seconds", -1, "title", "No")));
+        assertThat(validator.validate(tool, args).isValid()).isFalse();
+        args.put("chapters", List.of(Map.of("seconds", 0, "title", "No", "url", "https://example.com")));
+        assertThat(validator.validate(tool, args).isValid()).isFalse();
+        args.put("chapters", Collections.nCopies(31, Map.of("seconds", 0, "title", "No")));
+        assertThat(validator.validate(tool, args).isValid()).isFalse();
+        args.remove("chapters"); args.put("sourceUrl", "http://localhost");
+        assertThat(validator.validate(tool, args).isValid()).isFalse();
     }
 
     @Test void articleToolsRejectUnsafePathsHashesAndUnrelatedSources() throws Exception {

@@ -26,6 +26,40 @@
 #     riskLevel / confirmRequired flags.
 
 tools:
+  - name: media.get_presentation
+    mode: READ
+    description: Read the homepage Introduction placement (yuqi-intro), current assetId, enabled state and revision. This is separate from article videos. Read this before replacing or disabling it; public visibility follows the homepage ISR refresh, not the write response.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    parameters:
+      - { name: placementKey, type: string, required: true, enum: [yuqi-intro] }
+    endpoint: { target: admin, method: GET, path: "/api/admin/media/presentations/{placementKey}" }
+
+  - name: media.set_presentation
+    mode: WRITE
+    description: Replace the homepage Introduction with a READY VIDEO asset after explicit approval. Upload via start_upload, PUT each binary part to its signed URL, complete_upload, and poll media.get until READY first. Then use the revision from get_presentation. Reuses processed HLS renditions and poster; no Mac script, gcloud, raw original, arbitrary URL or article edit is needed. Public visibility follows homepage ISR (currently a 300-second revalidation interval, refreshed on a subsequent request); verify the public player separately. Old asset is retained. Does not notify subscribers.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: placementKey, type: string, required: true, enum: [yuqi-intro] }
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36, description: READY VIDEO asset UUID. }
+      - { name: expectedRevision, type: string, required: true, minLength: 64, maxLength: 64 }
+      - { name: title, type: string, required: false, minLength: 1, maxLength: 300 }
+      - { name: chapters, type: array, required: false, description: "Up to 30 {seconds: number, title: string} entries in ascending order within the video duration. Omit for no chapters." }
+    endpoint: { target: admin, method: PUT, path: "/api/admin/media/presentations/{placementKey}" }
+
+  - name: media.disable_presentation
+    mode: WRITE
+    description: Hide the homepage Introduction after explicit approval and a fresh revision from get_presentation. Retains the asset, files and audit history; does not delete video or edit articles. Public visibility follows the homepage ISR refresh, not the write response.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: placementKey, type: string, required: true, enum: [yuqi-intro] }
+      - { name: expectedRevision, type: string, required: true, minLength: 64, maxLength: 64 }
+    endpoint: { target: admin, method: DELETE, path: "/api/admin/media/presentations/{placementKey}" }
+
   - name: media.get_article
     mode: READ
     description: Read an article's embedded media IDs and contentHash before attaching or removing a video. These references are stored in the article body, not hardcoded in the frontend. Administrator only.
@@ -95,7 +129,7 @@ tools:
 
   - name: media.start_upload
     mode: WRITE
-    description: Create a private multipart upload after user approval. Returns assetId, uploadId and temporary signed PUT URLs. Upload binary file parts directly; never send base64 or remote import URLs through this tool. Then call media.complete_upload. Replayed receipts omit signed URLs; use media.resume_upload with a new key to renew them. Do not log or share signed URLs.
+    description: Create a private multipart upload after user approval. Returns assetId, uploadId and temporary signed PUT URLs. The caller must have binary HTTP upload access to storage.googleapis.com; an MCP tool call alone does not upload bytes. If network policy blocks that domain, stop and request permission or use the authenticated Admin Media uploader; do not report success or bypass the restriction. Upload binary file parts directly; never send base64 or import URLs through this tool. Then complete_upload and poll get until READY. Replayed receipts omit signed URLs; use resume_upload to renew. Do not log or share signed URLs. For the homepage intro use set_presentation, not attach_to_article.
     requiredRole: ADMIN
     riskLevel: HIGH
     confirmRequired: true

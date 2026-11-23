@@ -22,6 +22,22 @@ final class MediaToolArguments {
             throw new IllegalArgumentException("expectedContentHash must be a SHA-256 digest");
         choice(args, "sourceType", Set.of("BLOG", "PROJECT"));
         choice(args, "position", Set.of("START", "END"));
+        choice(args, "placementKey", Set.of("yuqi-intro"));
+        if (args.containsKey("expectedRevision") && !(args.get("expectedRevision") instanceof String revision && revision.matches("[0-9a-f]{64}")))
+            throw new IllegalArgumentException("expectedRevision must be the SHA-256 revision from media.get_presentation");
+        if (args.containsKey("chapters")) {
+            if (!(args.get("chapters") instanceof java.util.List<?> chapters) || chapters.size() > 30)
+                throw new IllegalArgumentException("At most 30 chapters allowed");
+            double previous = -1;
+            for (Object item : chapters) {
+                if (!(item instanceof Map<?, ?> chapter) || !Set.of("seconds", "title").equals(chapter.keySet())
+                        || !(chapter.get("seconds") instanceof Number seconds) || !Double.isFinite(seconds.doubleValue())
+                        || seconds.doubleValue() < 0 || seconds.doubleValue() <= previous
+                        || !(chapter.get("title") instanceof String title) || title.isBlank() || title.length() > 120)
+                    throw new IllegalArgumentException("Invalid ordered chapter timestamp or title");
+                previous = seconds.doubleValue();
+            }
+        }
         choice(args, "kind", Set.of("VIDEO", "IMAGE"));
         choice(args, "status", Set.of("UPLOADING", "PROCESSING", "READY", "FAILED"));
         number(args, "limit", 1, 100);
