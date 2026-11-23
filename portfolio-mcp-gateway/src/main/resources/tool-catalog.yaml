@@ -26,6 +26,152 @@
 #     riskLevel / confirmRequired flags.
 
 tools:
+  - name: media.get_article
+    mode: READ
+    description: Read an article's embedded media IDs and contentHash before attaching or removing a video. These references are stored in the article body, not hardcoded in the frontend. Administrator only.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    parameters:
+      - { name: sourceType, type: string, required: true, description: BLOG or PROJECT. }
+      - { name: sourceId, type: string, required: true, minLength: 36, maxLength: 36 }
+    endpoint: { target: admin, method: GET, path: "/api/admin/media/articles/{sourceType}/{sourceId}" }
+
+  - name: media.attach_to_article
+    mode: WRITE
+    description: Attach a READY video to an existing article's beginning or end. Supply contentHash from media.get_article as expectedContentHash. Preserves the rest of the article; duplicate references are not inserted. Does not publish or notify subscribers, but edits to an already-public article may become visible after its page cache refreshes. Create the article first, attach video, then explicitly use admin.publish_content if publication is wanted.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: sourceType, type: string, required: true, description: BLOG or PROJECT. }
+      - { name: sourceId, type: string, required: true, minLength: 36, maxLength: 36 }
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36, description: READY video asset UUID. }
+      - { name: expectedContentHash, type: string, required: true, minLength: 64, maxLength: 64 }
+      - { name: position, type: string, required: false, description: START or END; default START. }
+    endpoint: { target: admin, method: POST, path: "/api/admin/media/articles/{sourceType}/{sourceId}" }
+
+  - name: media.detach_from_article
+    mode: WRITE
+    description: Remove only this video's figure references from the article; preserve all other HTML, code and diagrams. Requires current contentHash and approval. Does not delete stored media, publish or send notifications. Already-public article edits may appear after cache refresh.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: sourceType, type: string, required: true, description: BLOG or PROJECT. }
+      - { name: sourceId, type: string, required: true, minLength: 36, maxLength: 36 }
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+      - { name: expectedContentHash, type: string, required: true, minLength: 64, maxLength: 64 }
+    endpoint: { target: admin, method: DELETE, path: "/api/admin/media/articles/{sourceType}/{sourceId}" }
+
+  # Private media administration. Bytes go directly to signed object-storage URLs,
+  # never through the LLM or gateway. Processing remains owned by the media pipeline.
+  - name: media.list
+    mode: READ
+    description: List media assets, playback manifests and transcode jobs. Deleted assets are excluded. Administrator only.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    parameters:
+      - { name: kind, type: string, required: false, description: "VIDEO or IMAGE; omit for both." }
+      - { name: status, type: string, required: false, description: "UPLOADING, PROCESSING, READY or FAILED." }
+      - { name: limit, type: integer, required: false, description: "1-100; default 50." }
+    endpoint: { target: admin, method: GET, path: /api/admin/media }
+
+  - name: media.get
+    mode: READ
+    description: Inspect one asset, rendition jobs, public playback manifest, usage locations and metadataVersion. READY is required before reporting playback available. Private original URLs are never returned.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36, description: Asset UUID. }
+    endpoint: { target: admin, method: GET, path: "/api/admin/media/{id}" }
+
+  - name: media.get_upload_limits
+    mode: READ
+    description: Read accepted video/image types and file-size limits before requesting an upload. Administrator only.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    parameters: []
+    endpoint: { target: admin, method: GET, path: /api/admin/media/limits }
+
+  - name: media.start_upload
+    mode: WRITE
+    description: Create a private multipart upload after user approval. Returns assetId, uploadId and temporary signed PUT URLs. Upload binary file parts directly; never send base64 or remote import URLs through this tool. Then call media.complete_upload. Replayed receipts omit signed URLs; use media.resume_upload with a new key to renew them. Do not log or share signed URLs.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: kind, type: string, required: true, description: VIDEO or IMAGE. }
+      - { name: filename, type: string, required: true, minLength: 1, maxLength: 300 }
+      - { name: contentType, type: string, required: true, minLength: 1, maxLength: 128 }
+      - { name: sizeBytes, type: integer, required: true }
+      - { name: title, type: string, required: false, maxLength: 300 }
+    endpoint: { target: admin, method: POST, path: /api/admin/media/uploads }
+
+  - name: media.resume_upload
+    mode: WRITE
+    description: Inspect uploaded parts and renew temporary signed PUT URLs for an open upload. Does not restart transcoding. Signed URLs are not retained in operation receipts; a new renewal uses a new idempotency key. Do not log or share signed URLs.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+      - { name: uploadId, type: string, required: true, minLength: 1, maxLength: 64 }
+    endpoint: { target: admin, method: POST, path: "/api/admin/media/{id}/upload-parts" }
+
+  - name: media.complete_upload
+    mode: WRITE
+    description: Verify all parts and queue transcoding through the existing durable outbox and Kafka. Does not attach video to any page. Poll media.get until READY; accepted is not playback success. Transcoding incurs existing storage/compute costs.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+      - { name: uploadId, type: string, required: true, minLength: 1, maxLength: 64 }
+    endpoint: { target: admin, method: POST, path: "/api/admin/media/{id}/upload-complete" }
+
+  - name: media.update
+    mode: WRITE
+    description: Replace title and description only. Read media.get and supply its metadataVersion as expectedVersion; concurrent changes fail. Does not replace bytes, change page bindings or retrigger transcoding.
+    requiredRole: ADMIN
+    riskLevel: MEDIUM
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+      - { name: expectedVersion, type: integer, required: true }
+      - { name: title, type: string, required: true, minLength: 1, maxLength: 300 }
+      - { name: description, type: string, required: false, maxLength: 2000, description: Omit or empty to clear. }
+    endpoint: { target: admin, method: PUT, path: "/api/admin/media/{id}" }
+
+  - name: media.check_delete
+    mode: READ
+    description: Preview deletion eligibility, active jobs and tracked page references without changing anything. Also checks article and draft references. Untracked external copies cannot be detected.
+    requiredRole: ADMIN
+    riskLevel: LOW
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+    endpoint: { target: admin, method: GET, path: "/api/admin/media/{id}/deletion-check" }
+
+  - name: media.delete
+    mode: WRITE
+    description: Logically delete an unused READY/FAILED asset from the library and public catalog, after media.check_delete and explicit user confirmation. Rejects active jobs and tracked references. Stored originals, renditions and cached URLs are NOT erased. This is not a cloud-file purge. Supply metadataVersion as expectedVersion; an audit record is retained.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+      - { name: expectedVersion, type: integer, required: true }
+    endpoint: { target: admin, method: DELETE, path: "/api/admin/media/{id}" }
+
+  - name: media.retry_processing
+    mode: WRITE
+    description: Requeue a failed transcode using its stored source. Requires approval and may incur processing costs. Poll media.get; does not retry deleted assets or incomplete uploads.
+    requiredRole: ADMIN
+    riskLevel: HIGH
+    confirmRequired: true
+    parameters:
+      - { name: id, type: string, required: true, minLength: 36, maxLength: 36 }
+    endpoint: { target: admin, method: POST, path: "/api/admin/media/{id}/retry" }
+
   - name: portfolio.get_public_profile
     mode: READ
     description: Read explicitly approved public profile evidence. No private CV or application memory is accessed.

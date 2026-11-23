@@ -165,6 +165,14 @@ separate from the agent runtime so retrieval quality can evolve independently.
 - Audit payloads are redacted before logging or event publication.
 - Domain adapters keep business ownership outside the gateway.
 
+The `media.*` catalog adds administrator-only upload sessions, asset inspection,
+metadata editing, deletion checks, logical deletion, and transcode retries.
+Every media write requires confirmation and a durable idempotency key; updates
+and deletions also require the current metadata version. Deploy admin-service
+and its V15 media migration before publishing these tools. See the
+[Admin media contract](https://github.com/YuqiGuo105/portfolio-mcp-server/blob/main/docs/ADMIN_MEDIA.md)
+for file-transfer, signed-URL, and logical-deletion boundaries.
+
 The first analytics MCP surface is intentionally narrow:
 
 | Tool | Purpose |

@@ -19,6 +19,31 @@ import static org.mockito.Mockito.verify;
 class AdminServiceAdapterTest {
 
     @Test
+    void mediaDeleteForwardsVersionAndTrustedIdentityWithoutControlArgs() {
+        var captured = new java.util.concurrent.atomic.AtomicReference<org.springframework.web.reactive.function.client.ClientRequest>();
+        var builder = WebClient.builder().exchangeFunction(request -> {
+            captured.set(request);
+            return reactor.core.publisher.Mono.just(org.springframework.web.reactive.function.client.ClientResponse
+                    .create(org.springframework.http.HttpStatus.OK).header("Content-Type", "application/json")
+                    .body("{\"status\":\"DELETED\",\"filesRetained\":true}").build());
+        });
+        var adapter = new AdminServiceAdapter(builder);
+        ReflectionTestUtils.setField(adapter, "baseUrl", "https://admin.example.test");
+        ReflectionTestUtils.setField(adapter, "adminSecret", "test-service-secret");
+        ReflectionTestUtils.setField(adapter, "timeoutMs", 15000);
+        String id = java.util.UUID.randomUUID().toString();
+        var tool = ToolDefinition.builder().name("media.delete").mode(site.yuqi.mcp.model.ToolMode.WRITE)
+                .endpoint(new ToolDefinition.Endpoint("admin", "DELETE", "/api/admin/media/{id}")).build();
+        var result = adapter.invoke(tool, Map.of("id", id, "expectedVersion", 3, "_confirmed", true,
+                "_mcpActor", "operator", "_mcpTool", "media.delete", "_idempotencyKey", "intent-123"));
+        assertEquals("DELETED", result.get("status"));
+        assertEquals("/api/admin/media/" + id, captured.get().url().getPath());
+        assertEquals("expectedVersion=3", captured.get().url().getQuery());
+        assertEquals("operator", captured.get().headers().getFirst("X-MCP-Actor"));
+        assertEquals("intent-123", captured.get().headers().getFirst("Idempotency-Key"));
+    }
+
+    @Test
     void forwardsUnicodeAndReservedQueryCharactersExactlyOnce() {
         java.util.concurrent.atomic.AtomicReference<java.net.URI> captured = new java.util.concurrent.atomic.AtomicReference<>();
         WebClient.Builder client = WebClient.builder().exchangeFunction(request -> {

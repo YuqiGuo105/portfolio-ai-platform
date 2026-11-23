@@ -55,6 +55,11 @@ public class ParameterValidator {
             }
         }
 
+        if (tool.getName() != null && tool.getName().startsWith("media.")) {
+            try { MediaToolArguments.validate(tool, safe); }
+            catch (IllegalArgumentException e) { errors.add(e.getMessage()); }
+        }
+
         return ValidationResult.builder()
                 .valid(errors.isEmpty())
                 .errors(errors)
