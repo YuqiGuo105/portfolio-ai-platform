@@ -753,6 +753,7 @@ class AgentPipelineServiceRouteTest {
                 .thenReturn(AgentRouteDecision.generalChat(intent, "普通模式的简短回答"));
         when(knowledgeClient.search(anyString(), anyInt()))
                 .thenReturn(KnowledgeSearchResponse.builder().results(List.of()).build());
+        when(generationService.deepWebSearch()).thenReturn(true);
         when(generationService.streamGenerateGrounded(anyString(), anyString()))
                 .thenReturn(reactor.core.publisher.Flux.just(
                         new GeminiGenerationService.GroundedChunk(
@@ -1148,6 +1149,7 @@ class AgentPipelineServiceRouteTest {
                 Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
                 "STANDARD", List.of(), GenerationTier.DEEP, "Searching");
         when(routePlanner.plan(any())).thenReturn(AgentRouteDecision.generalChat(intent, ""));
+        when(generationService.deepWebSearch()).thenReturn(true);
         when(generationService.streamGenerateGrounded(anyString(), anyString())).thenReturn(
                 reactor.core.publisher.Flux.just(new GeminiGenerationService.GroundedChunk("", List.of(
                         new GeminiGenerationService.GroundedSource("https://example.com", "Example")))));
@@ -1156,5 +1158,79 @@ class AgentPipelineServiceRouteTest {
         assertThat(events.toString()).contains("could not be completed");
         assertThat(events).extracting(event -> event.get("stage")).contains("answer_final", "done");
         verify(safetyService, never()).checkOutputWithContext(any(), any());
+    }
+
+    @Test
+    void deepModeWithoutWebSearchDraftsReviewsLooksUpAndRefinesOnTheBoundedModel() {
+        IntentResult intent = new IntentResult(
+                IntentType.KNOWLEDGE_QA, null, 0.97, "en", "Yuqi work experience",
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "STANDARD", List.of(), GenerationTier.DEEP, "Thinking");
+        when(routePlanner.plan(any(IntentRequest.class))).thenReturn(AgentRouteDecision.knowledge(intent));
+        KnowledgeSearchResponse.ChunkHit role = new KnowledgeSearchResponse.ChunkHit(
+                "c1", "d1", "Experience", "Software Engineer at Goldman Sachs.", 0.9, "resume", "r1", null);
+        KnowledgeSearchResponse.ChunkHit dates = new KnowledgeSearchResponse.ChunkHit(
+                "c2", "d1", "Dates", "Joined in January 2025.", 0.8, "resume", "r1", null);
+        when(knowledgeClient.search(anyString(), eq(8)))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of(role)).build());
+        when(knowledgeClient.search(eq("Goldman Sachs start date"), eq(4)))
+                .thenReturn(KnowledgeSearchResponse.builder().results(List.of(role, dates)).build());
+        when(generationService.generateDeep(anyString(), anyString(), any()))
+                .thenReturn("He works at Goldman Sachs.", "He has worked at Goldman Sachs since January 2025.");
+        when(generationService.generate(eq(DeepAnswerLoop.REVIEW_SYSTEM), anyString()))
+                .thenReturn("VERDICT: REVISE\nGAPS:\n- No start date\nSEARCH:\n- Goldman Sachs start date");
+        when(generationService.utilityModel()).thenReturn("gemini-2.5-flash");
+
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("deep-loop")
+                        .question("Where does Yuqi work, and since when?").mode("DEEPTHINKING").build())
+                .collectList().block(java.time.Duration.ofSeconds(10));
+
+        assertThat(events).isNotNull();
+        assertThat(events).extracting(event -> event.get("stage"))
+                .contains("knowledge_retrieval", "generating", "reasoning_step", "output_safety", "answer_final", "done")
+                .doesNotContain("web_research");
+        assertThat(events.toString()).contains(
+                "He has worked at Goldman Sachs since January 2025.",
+                "Plan the answer", "Draft the answer", "Review the draft", "Look up what is missing",
+                "Refine the answer", "Check the final answer", "Answer drafted, reviewed and refined");
+        verify(generationService, never()).streamGenerateGrounded(anyString(), anyString());
+        verify(generationService, never()).streamGenerate(anyString(), anyString());
+        ArgumentCaptor<String> prompt = ArgumentCaptor.forClass(String.class);
+        verify(generationService, times(2)).generateDeep(anyString(), prompt.capture(), any());
+        assertThat(prompt.getAllValues().get(0)).contains("Deep answer instructions").doesNotContain("Google Search");
+        assertThat(prompt.getAllValues().get(1))
+                .contains("Joined in January 2025.", "No start date", "He works at Goldman Sachs.");
+        // The answer is checked against the evidence it was written from, including what the loop found.
+        ArgumentCaptor<OutputSafetyContext> checked = ArgumentCaptor.forClass(OutputSafetyContext.class);
+        verify(safetyService).checkOutputWithContext(checked.capture(), any());
+        assertThat(checked.getValue().candidateResponse()).isEqualTo("He has worked at Goldman Sachs since January 2025.");
+        assertThat(checked.getValue().groundingEvidence())
+                .contains("Software Engineer at Goldman Sachs.", "Joined in January 2025.");
+        // One Deep call, then each further pass as a standard call; never as a web search.
+        verify(chatBudgetService).recordModelCall("gemini-2.5-pro", true, false);
+        verify(chatBudgetService).recordModelCall("gemini-2.5-pro", false, false);
+        verify(chatBudgetService).recordModelCall("gemini-2.5-flash", false, false);
+    }
+
+    @Test
+    void deepModeAnswersAGeneralQuestionFromGeneralKnowledgeAndKeepsACompleteDraft() {
+        IntentResult intent = new IntentResult(IntentType.GENERAL_CHAT, null, 0.95, "en", null,
+                Map.of(), RiskLevel.READ_ONLY, false, List.of(), null,
+                "STANDARD", List.of(), GenerationTier.DEEP, "Thinking");
+        when(routePlanner.plan(any(IntentRequest.class))).thenReturn(AgentRouteDecision.generalChat(intent, ""));
+        when(generationService.generateDeep(anyString(), anyString(), any()))
+                .thenReturn("A queue decouples producers from consumers.");
+        when(generationService.generate(eq(DeepAnswerLoop.REVIEW_SYSTEM), anyString())).thenReturn("VERDICT: COMPLETE");
+
+        var events = service.runPipeline(AgentStreamRequest.builder().sessionId("deep-general")
+                .question("Why use a message queue?").build()).collectList().block(java.time.Duration.ofSeconds(10));
+
+        assertThat(events).isNotNull();
+        assertThat(events.toString()).contains("A queue decouples producers from consumers.",
+                "A general question: answered from general knowledge.", "Answer drafted and reviewed");
+        assertThat(events).extracting(event -> event.get("stage")).contains("answer_final", "done");
+        verify(knowledgeClient, never()).search(anyString(), anyInt());
+        verify(generationService, times(1)).generateDeep(anyString(), anyString(), any());
+        verify(generationService, never()).streamGenerateGrounded(anyString(), anyString());
     }
 }

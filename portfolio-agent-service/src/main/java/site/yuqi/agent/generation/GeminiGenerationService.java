@@ -37,8 +37,17 @@ public class GeminiGenerationService {
     @Value("${agent.generation.model:gemini-2.5-flash-lite}")
     private String generationModel;
 
-    @Value("${agent.generation.deep-model:gemini-2.5-pro}")
+    // Deep answers run on the standard model unless another one is named: the spend guard in
+    // front of the provider only admits models it has a price for.
+    @Value("${agent.generation.deep-model:${agent.generation.model:gemini-2.5-flash-lite}}")
     private String deepGenerationModel;
+
+    /** Web search needs a provider that admits tools; off, Deep is a bounded review loop. */
+    @Value("${agent.generation.deep-web-search:false}")
+    private boolean deepWebSearch;
+
+    @Value("${agent.generation.deep-thinking-budget:0}")
+    private int deepThinkingBudget;
 
     @Value("${agent.generation.utility-model:gemini-2.5-flash-lite}")
     private String utilityModel;
@@ -192,6 +201,38 @@ public class GeminiGenerationService {
                 .timeout(Duration.ofSeconds(45))
                 .onErrorMap(e -> new IllegalStateException("Generation provider unavailable"))
                 .block();
+        return extractFullText(response);
+    }
+
+    /** Whether Deep mode answers with web search (true) or with the bounded review loop (false). */
+    public boolean deepWebSearch() {
+        return deepWebSearch;
+    }
+
+    /**
+     * One complete Deep-mode answer without web search. The call is bounded like every other
+     * one: no tools, an explicit thinking budget and a capped output.
+     */
+    String generateDeep(String systemPrompt, String userMessage, GenerationUsage usage) {
+        String url = baseUrl + "/models/" + deepGenerationModel + ":generateContent";
+        ObjectNode requestBody = buildRequest(
+                systemPrompt, userMessage, false, deepMaxOutputTokens, deepThinkingBudget);
+
+        String response = webClient.post()
+                .uri(url)
+                .header("x-goog-api-key", apiKey)
+                .header("Content-Type", "application/json")
+                .bodyValue(requestBody.toString())
+                .retrieve()
+                .bodyToMono(String.class)
+                .timeout(Duration.ofSeconds(75))
+                .onErrorMap(e -> new IllegalStateException("Generation provider unavailable"))
+                .block();
+        if (usage != null && response != null) {
+            try {
+                usage.observe(objectMapper.readTree(response).path("usageMetadata"));
+            } catch (Exception ignored) { /* An absent receipt is not zero usage. */ }
+        }
         return extractFullText(response);
     }
 

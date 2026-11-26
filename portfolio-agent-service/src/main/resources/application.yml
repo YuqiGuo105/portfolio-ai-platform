@@ -198,7 +198,13 @@ handoff:
 # ─── Tiered Answer Generation ────────────────────────────────────────────
 agent.generation:
   model: ${GENERATION_MODEL:gemini-2.5-flash-lite}
-  deep-model: ${DEEP_GENERATION_MODEL:gemini-2.5-pro}
+  # Deep answers run on the standard model unless another priced model is named.
+  deep-model: ${DEEP_GENERATION_MODEL:${GENERATION_MODEL:gemini-2.5-flash-lite}}
+  # Off: Deep is a bounded draft, review, look-up and refine loop. On needs a provider that admits tools.
+  deep-web-search: ${DEEP_GENERATION_WEB_SEARCH:false}
+  deep-thinking-budget: ${DEEP_GENERATION_THINKING_BUDGET:0}
+  deep-review-rounds: ${DEEP_GENERATION_REVIEW_ROUNDS:1}
+  deep-time-budget-ms: ${DEEP_GENERATION_TIME_BUDGET_MS:45000}
   utility-model: ${UTILITY_GENERATION_MODEL:gemini-2.5-flash-lite}
   max-output-tokens: ${GENERATION_MAX_OUTPUT_TOKENS:2048}
   deep-max-output-tokens: ${DEEP_GENERATION_MAX_OUTPUT_TOKENS:4096}
